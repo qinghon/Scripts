@@ -1,8 +1,10 @@
 #!/bin/sh
 
+
 MMCPATH="/mnt/mmc"
 SSL_PATH="/opt/bcloud"
-FILEPATH="/boot/bcloud.tar.gz"
+MAC_ADDR=$(cat /sys/class/net/eth0/address |sed -e s/://g)
+FILEPATH="/boot/bcloud$MAC_ADDR.tar.gz"
 MMC_BLOCK1="/dev/mmcblk1p2"
 MMC_BLOCK2="/dev/mmcblk0p2"
 MMC_BLOCK3="/dev/mmcblk0"
@@ -11,6 +13,9 @@ MMC_BLOCK3="/dev/mmcblk0"
 BXC_SSL_KEY="$MMCPATH$SSL_PATH/client.key"
 BXC_SSL_CRT="$MMCPATH$SSL_PATH/client.crt"
 BXC_SSL_CA="$MMCPATH$SSL_PATH/ca.crt"
+
+
+mkdir -p $MMCPATH
 
 if [ -b $MMC_BLOCK1 ]; then
 	mount $MMC_BLOCK1 $MMCPATH
@@ -57,7 +62,7 @@ func_verif(){
 }
 
 backup(){
-    cd $MMCPATH/opt
+    cd $MMCPATH/
     func_verif 
     res0=`echo $?`
     if [ $res0 -eq 1 ]; then
@@ -65,7 +70,7 @@ backup(){
         echo "\033[31m 证书文件未找到，结束备份\033[0m"
         exit 1
     fi
-    tar -cvzp -f $FILEPATH bcloud 
+    tar -cvzp -f $FILEPATH opt/bcloud etc/network/interfaces
     res=`echo $?`
     if [ "$res" != 0 ] ;then
         echo "$res"
@@ -80,7 +85,7 @@ backup(){
     cd ~
 }
 restore(){
-    tar -xvz -f $FILEPATH -C $MMCPATH/opt 
+    tar -xvz -f $FILEPATH -C $MMCPATH/
     func_verif
     res=`echo $?`
     if [ "$res" != 0 ] ;then
