@@ -1,11 +1,16 @@
 #!/bin/sh
 
 MMCPATH="/mnt/mmc"
+SSL_PATH="/opt/bcloud"
 FILEPATH="/boot/bcloud.tar.gz"
 MMC_BLOCK1="/dev/mmcblk1p2"
 MMC_BLOCK2="/dev/mmcblk0p2"
 MMC_BLOCK3="/dev/mmcblk0"
 
+
+BXC_SSL_KEY="$MMCPATH$SSL_PATH/client.key"
+BXC_SSL_CRT="$MMCPATH$SSL_PATH/client.crt"
+BXC_SSL_CA="$MMCPATH$SSL_PATH/ca.crt"
 
 if [ -b $MMC_BLOCK1 ]; then
 	mount $MMC_BLOCK1 $MMCPATH
@@ -22,13 +27,44 @@ fi
 
 if [ -d "$MMCPATH"/opt ]; then
 	echo "mount emmc success!"
+    echo "挂载成功"
 else
 	echo "mount emmc failed!"
+    echo "挂载失败"
 fi
 
 
+func_verif(){
+    if [ -e $BXC_SSL_KEY ]; then
+        echo "Certificate $BXC_SSL_KEY exist"
+    else
+        echo -e "\033[31mCertificate $BXC_SSL_KEY not found!\033[0m"
+        return 1
+    fi
+    if [ -e $BXC_SSL_CRT ]; then
+        echo "Certificate $BXC_SSL_CRT exist"
+    else
+        echo -e "\033[31mCertificate $BXC_SSL_CRT not found!\033[0m"
+        return 1
+    fi
+    if [ -e $BXC_SSL_CA ]; then
+        echo "Certificate $BXC_SSL_CA exist"
+    else
+        echo "\033[31mCertificate $BXC_SSL_CA not found!\033[0m"
+        return 1
+    fi
+    return 0
+}
+
 backup(){
     cd $MMCPATH/opt
+    func_verif 
+    res0=`echo $?`
+    if [ $res0 -eq 1 ]; then
+        echo "\033[31mCertificate not found,end of the installation\033[0m"
+        echo "\033[31m 证书文件未找到，结束备份\033[0m"
+        exit 1
+    fi
     tar -cvzp -f $FILEPATH bcloud 
     res=`echo $?`
     if [ "$res" != 0 ] ;then
@@ -45,10 +81,11 @@ backup(){
 }
 restore(){
     tar -xvz -f $FILEPATH -C $MMCPATH/opt 
+    func_verif
     res=`echo $?`
     if [ "$res" != 0 ] ;then
         echo "$1 failed "
-        echo "还原失败"
+        echo "\033[31m 证书文件未找到，还原失败\033[0m"
     else
         echo "$1 success!"
         echo "还原成功"
