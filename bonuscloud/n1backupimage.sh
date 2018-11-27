@@ -12,6 +12,9 @@ BXC_SSL_KEY="$MMCPATH$SSL_PATH/client.key"
 BXC_SSL_CRT="$MMCPATH$SSL_PATH/client.crt"
 BXC_SSL_CA="$MMCPATH$SSL_PATH/ca.crt"
 
+
+mkdir -p $MMCPATH
+
 if [ -b $MMC_BLOCK1 ]; then
 	mount $MMC_BLOCK1 $MMCPATH
 elif [ -b $MMC_BLOCK2 ]; then
