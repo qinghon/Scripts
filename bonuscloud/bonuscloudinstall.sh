@@ -1,8 +1,8 @@
 #!/bin/sh
 
-ARM="https://raw.githubusercontent.com/hikaruchang/BonusCloud-Node/master/openwrt-ipk/bonuscloud_0.2.2-6o-1_arm_cortex-a9.ipk"
-MIPS="https://github.com/hikaruchang/BonusCloud-Node/raw/master/openwrt-ipk/bonuscloud_0.2.2-6o-1_mips_24kc.ipk"
-MIPSEL="https://github.com/hikaruchang/BonusCloud-Node/raw/master/openwrt-ipk/bonuscloud_0.2.2-6o-1_mipsel_24kc.ipk"
+ARM="https://github.com/hikaruchang/BonusCloud-Node/raw/master/openwrt-ipk/bonuscloud_0.2.2-7o-1_arm_cortex-a9.ipk"
+MIPS="https://github.com/hikaruchang/BonusCloud-Node/raw/master/openwrt-ipk/bonuscloud_0.2.2-7o-1_mips_24kc.ipk"
+MIPSEL="https://github.com/hikaruchang/BonusCloud-Node/raw/master/openwrt-ipk/bonuscloud_0.2.2-7o-1_mipsel_24kc.ipk"
 
 opkg_init(){
 	opkg update
