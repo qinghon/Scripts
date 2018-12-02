@@ -1,8 +1,8 @@
 #!/bin/sh
 
-ARM="https://github.com/hikaruchang/BonusCloud-Node/raw/master/openwrt-ipk/bonuscloud_0.2.2-7o-1_arm_cortex-a9.ipk"
-MIPS="https://github.com/hikaruchang/BonusCloud-Node/raw/master/openwrt-ipk/bonuscloud_0.2.2-7o-1_mips_24kc.ipk"
-MIPSEL="https://github.com/hikaruchang/BonusCloud-Node/raw/master/openwrt-ipk/bonuscloud_0.2.2-7o-1_mipsel_24kc.ipk"
+ARM="https://github.com/hikaruchang/BonusCloud-Node/raw/master/openwrt-ipk/bonuscloud_0.2.2-8o-1_arm_cortex-a9.ipk"
+MIPS="https://github.com/hikaruchang/BonusCloud-Node/raw/master/openwrt-ipk/bonuscloud_0.2.2-8o-1_mips_24kc.ipk"
+MIPSEL="https://github.com/hikaruchang/BonusCloud-Node/raw/master/openwrt-ipk/bonuscloud_0.2.2-8o-1_mipsel_24kc.ipk"
 
 opkg_init(){
     opkg update
@@ -61,19 +61,22 @@ language_ins(){
     exit 0
 }
 defult_ins(){
-    echo -e " \033[31m 注意少部分路由器如K2P,新路由3会判断失败，请手动加上参数执行\033[0m "
-    echo "比如\n bonuscloudinstall.sh mipsel \n"
-    echo "装错了不要紧，卸载后重新来就好"
-    cpu=`cat /etc/opkg/distfeeds.conf`
+    #echo -e "\033[31m 注意少部分路由器如K2P,新路由3会判断失败，请手动加上参数执行\033[0m "
+    #echo -e "比如\n bonuscloudinstall.sh mipsel \n"
+    #echo "装错了不要紧，卸载后重新来就好"
+    ARM_INFO=`grep arm_ /etc/opkg/distfeeds.conf`
+    MIPS_INFO=`grep mips_ /etc/opkg/distfeeds.conf`
+    MIPSEL_INFO=`grep mipsel_ /etc/opkg/distfeeds.conf`
     if [ `echo $?` -eq 0 ]; then
-        if [ -n ""$cpu"|grep arm_" ]; then
-            echo -e " the cpu is\033[31m $cpu\033[0m ,install arm"
+
+        if [ -n "$ARM_INFO" ]; then
+            echo -e " the cpu is\033[31m $ARM_INFO\033[0m ,install arm"
             arm_ins
-        elif [ -n ""$cpu"|grep mips_" ]; then
-            echo -e " the cpu is\033[31m $cpu\033[0m ,install mips"
+        elif [ -n "$MIPS_INFO" ]; then
+            echo -e " the cpu is\033[31m $MIPS_INFO\033[0m ,install mips"
             mips_ins
-        elif [ -n ""$cpu"|grep mipsel_" ]; then
-            echo -e " the cpu is\033[31m $cpu\033[0m ,install mipsel"
+        elif [ -n "$MIPSEL_INFO" ]; then
+            echo -e " the cpu is\033[31m $MIPSEL_INFO\033[0m ,install mipsel"
             mipsel_ins
         else
             echo "you device can not install the package"
@@ -81,6 +84,8 @@ defult_ins(){
     else
         echo "file not found"
         echo "Are you sure it's openwrt?"
+        echo -e "\033[31m Install Failed!\033[0m"
+        echo "$MIPSEL_INFO "
     fi
     
 }
