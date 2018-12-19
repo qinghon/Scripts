@@ -85,7 +85,9 @@ backup(){
     cd ~
 }
 restore(){
-    tar -xvz -f $FILEPATH -C $MMCPATH/
+    BCLOUD_FILE=$(ls /boot/bcloud* |head -n 1 )
+    echo "本次还原的证书文件名为 $BCLOUD_FILE "
+    tar -xvz -f $BCLOUD_FILE -C $MMCPATH/
     func_verif
     res=`echo $?`
     if [ "$res" != 0 ] ;then
