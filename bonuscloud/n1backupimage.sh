@@ -4,7 +4,7 @@
 MMCPATH="/mnt/mmc"
 SSL_PATH="/opt/bcloud"
 MAC_ADDR=$(cat /sys/class/net/eth0/address |sed -e s/://g)
-FILEPATH="/boot/bcloud$MAC_ADDR.tar.gz"
+FILEPATH="/boot/bcloud-$MAC_ADDR.tar.gz"
 MMC_BLOCK1="/dev/mmcblk1p2"
 MMC_BLOCK2="/dev/mmcblk0p2"
 MMC_BLOCK3="/dev/mmcblk0"
