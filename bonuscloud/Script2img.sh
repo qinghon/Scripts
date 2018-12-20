@@ -31,7 +31,7 @@ if [ -n "$1" ]; then
     begain
     clean
 else
-    BCLOUD=$(find / -name 'bcloud'|grep -v '/opt')
+    BCLOUD=$(find / -name 'bcloud'|grep -v '/opt'|grep -v 'boot')
     #BXC_PATH=$(dirname "$BCLOUD")
     if [ -n "$BCLOUD" ]; then
         echo "找到证书路径为 $BCLOUD"
