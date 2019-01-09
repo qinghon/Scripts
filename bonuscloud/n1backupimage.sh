@@ -1,5 +1,5 @@
 #!/bin/sh
-
+#https://github.com/qinghon/Scripts/issues
 
 MMCPATH="/mnt/mmc"
 SSL_PATH="/opt/bcloud"
@@ -9,37 +9,26 @@ MMC_BLOCK1="/dev/mmcblk1p2"
 MMC_BLOCK2="/dev/mmcblk0p2"
 MMC_BLOCK3="/dev/mmcblk0"
 
-
-BXC_SSL_KEY="$MMCPATH$SSL_PATH/client.key"
-BXC_SSL_CRT="$MMCPATH$SSL_PATH/client.crt"
-BXC_SSL_CA="$MMCPATH$SSL_PATH/ca.crt"
-
-
-mkdir -p $MMCPATH
-
-if [ -b $MMC_BLOCK1 ]; then
-	mount $MMC_BLOCK1 $MMCPATH
-elif [ -b $MMC_BLOCK2 ]; then
-	echo "found $MMC_BLOCK2"
-	mount $MMC_BLOCK2 $MMCPATH
-elif [ -b $MMC_BLOCK3 ]; then
-	echo "Found $MMC_BLOCK3 and not found $MMC_BLOCK1 or $MMC_BLOCK2"
-	mount -o loop,offset=$((512*1619968)) $MMC_BLOCK3 $MMCPATH
-else
-	echo "emmc  not found"
-	exit 1
-fi
-
-if [ -d "$MMCPATH"/opt ]; then
-	echo "mount emmc success!"
-    echo "挂载成功"
-else
-	echo "mount emmc failed!"
-    echo "挂载失败"
-fi
-
+mnt(){
+    mkdir -p $MMCPATH
+    if [ -b $MMC_BLOCK1 ]; then
+    	mount $MMC_BLOCK1 $MMCPATH
+    elif [ -b $MMC_BLOCK2 ]; then
+    	echo "found $MMC_BLOCK2"
+    	mount $MMC_BLOCK2 $MMCPATH
+    elif [ -b $MMC_BLOCK3 ]; then
+    	echo "Found $MMC_BLOCK3 and not found $MMC_BLOCK1 or $MMC_BLOCK2"
+    	mount -o loop,offset=$((512*1619968)) $MMC_BLOCK3 $MMCPATH
+    else
+    	echo "emmc  not found"
+    	exit 1
+    fi
+}
 
 func_verif(){
+    BXC_SSL_KEY="$MMCPATH$SSL_PATH/client.key"
+    BXC_SSL_CRT="$MMCPATH$SSL_PATH/client.crt"
+    BXC_SSL_CA="$MMCPATH$SSL_PATH/ca.crt"
     if [ -e $BXC_SSL_KEY ]; then
         echo "Certificate $BXC_SSL_KEY exist"
     else
@@ -103,6 +92,19 @@ help(){
     echo "Input 'sh $0 backup' or 'sh $0 restore'"
     echo "输入'sh $0 backup' 备份 或者 'sh $0 restore' 还原"
 }
+ret_m=`df |grep 'mmcblk'|head -n 1|awk '{print $6}'` 
+if [ "$ret_m" = "/"  ]; then
+    MMCPATH="/"
+else
+    mnt
+fi
+if [ -d "$MMCPATH"/opt/bcloud ]; then
+    echo "mount emmc success!"
+    echo "挂载成功"
+else
+    echo "mount emmc failed!"
+    echo "挂载失败"
+fi
 
 case $1 in
     backup )
@@ -115,4 +117,6 @@ case $1 in
         help
         ;;
 esac
-umount $MMCPATH
+if [ "$MMCPATH" != "/" ]; then
+    umount $MMCPATH
+fi
