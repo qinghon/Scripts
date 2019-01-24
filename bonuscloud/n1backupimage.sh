@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # bxc certificate backup script for Phicomm n1 
 #https://github.com/qinghon/Scripts/issues
 
@@ -89,8 +89,21 @@ restore(){
 }
 
 help(){
-    echo "Input 'sh $0 backup' or 'sh $0 restore'"
-    echo "输入'sh $0 backup' 备份 或者 'sh $0 restore' 还原"
+    if  which dialog>/dev/null ;then
+        dialog --clear --title "Action choice" --menu "choose one" 12 35 5 1 "backup(备份)" 2 "restore(还原)"  2>/tmp/choose
+        ret=$(cat /tmp/choose )
+        if [[ $ret -eq 1 ]]; then
+            backup
+        elif [[ $ret -eq 2 ]]; then
+            restore
+        else
+            exit
+        fi
+    else
+        echo "Input 'sh $0 backup' or 'sh $0 restore'"
+        echo "输入'sh $0 backup' 备份 或者 'sh $0 restore' 还原"
+    fi
+    
 }
 ret_m=`df |grep 'mmcblk'|head -n 1|awk '{print $6}'` 
 if [ "$ret_m" = "/"  ]; then
@@ -104,6 +117,7 @@ if [ -d "$MMCPATH"/opt/bcloud ]; then
 else
     echo "mount emmc failed!"
     echo "挂载失败"
+    exit 1
 fi
 
 case $1 in
