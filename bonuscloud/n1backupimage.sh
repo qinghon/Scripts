@@ -1,4 +1,5 @@
 #!/bin/sh
+# bxc certificate backup script for Phicomm n1 
 #https://github.com/qinghon/Scripts/issues
 
 MMCPATH="/mnt/mmc"
@@ -29,17 +30,16 @@ func_verif(){
     BXC_SSL_KEY="$MMCPATH$SSL_PATH/client.key"
     BXC_SSL_CRT="$MMCPATH$SSL_PATH/client.crt"
     BXC_SSL_CA="$MMCPATH$SSL_PATH/ca.crt"
+    NODE_INFO="$MMCPATH$SSL_PATH/node.db"
     if [ -e $BXC_SSL_KEY ]; then
         echo "Certificate $BXC_SSL_KEY exist"
     else
         echo -e "\033[31mCertificate $BXC_SSL_KEY not found!\033[0m"
-        return 1
     fi
     if [ -e $BXC_SSL_CRT ]; then
         echo "Certificate $BXC_SSL_CRT exist"
     else
         echo -e "\033[31mCertificate $BXC_SSL_CRT not found!\033[0m"
-        return 1
     fi
     if [ -e $BXC_SSL_CA ]; then
         echo "Certificate $BXC_SSL_CA exist"
@@ -59,7 +59,7 @@ backup(){
         echo "\033[31m 证书文件未找到，结束备份\033[0m"
         exit 1
     fi
-    tar -cvzp -f $FILEPATH opt/bcloud etc/network/interfaces
+    tar -cvzp -f $FILEPATH $SSL_PATH/client.key $SSL_PATH/client.crt $SSL_PATH/ca.crt $SSL_PATH/node.db etc/network/interfaces
     res=`echo $?`
     if [ "$res" != 0 ] ;then
         echo "$res"
