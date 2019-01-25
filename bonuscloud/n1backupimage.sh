@@ -3,7 +3,7 @@
 #https://github.com/qinghon/Scripts/issues
 
 MMCPATH="/mnt/mmc"
-SSL_PATH="/opt/bcloud"
+SSL_PATH="opt/bcloud"
 MAC_ADDR=$(cat /sys/class/net/eth0/address |sed -e s/://g)
 FILEPATH="/boot/bcloud-$MAC_ADDR.tar.gz"
 MMC_BLOCK1="/dev/mmcblk1p2"
@@ -27,10 +27,10 @@ mnt(){
 }
 
 func_verif(){
-    BXC_SSL_KEY="$MMCPATH$SSL_PATH/client.key"
-    BXC_SSL_CRT="$MMCPATH$SSL_PATH/client.crt"
-    BXC_SSL_CA="$MMCPATH$SSL_PATH/ca.crt"
-    NODE_INFO="$MMCPATH$SSL_PATH/node.db"
+    BXC_SSL_KEY="$MMCPATH/$SSL_PATH/client.key"
+    BXC_SSL_CRT="$MMCPATH/$SSL_PATH/client.crt"
+    BXC_SSL_CA="$MMCPATH/$SSL_PATH/ca.crt"
+    NODE_INFO="$MMCPATH/$SSL_PATH/node.db"
     if [ -e $BXC_SSL_KEY ]; then
         echo "Certificate $BXC_SSL_KEY exist"
     else
@@ -76,7 +76,7 @@ backup(){
 restore(){
     BCLOUD_FILE=$(ls /boot/bcloud* |head -n 1 )
     echo "本次还原的证书文件名为 $BCLOUD_FILE "
-    tar -xvz -f $BCLOUD_FILE -C $MMCPATH/
+    tar -xvz -f $BCLOUD_FILE $SSL_PATH/client.key $SSL_PATH/client.crt $SSL_PATH/ca.crt $SSL_PATH/node.db etc/network/interfaces -C $MMCPATH/
     func_verif
     res=`echo $?`
     if [ "$res" != 0 ] ;then
