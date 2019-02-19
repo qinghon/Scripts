@@ -76,10 +76,10 @@ defult_ins(){
     do
     	clear
     	echo "Do you want install what??"
-    	echo -e "1) mips   \t AR71xx -->> $link"
-    	echo -e "2) mipsel \t MTK -->> $link"
-    	echo -e "3) mipsel_dsp MTK -->> Pandorabox"
-    	echo -e "4) Arm    \t BCM53xx -->> $link"
+    	echo -e "1) \033[31m mips\033[0m  \t AR71xx -->> $link"
+    	echo -e "2) \033[31m mipsel\033[0m \t MTK -->> $link"
+    	echo -e "3) \033[31m mipsel_dsp\033[0m\t MTK -->> Pandorabox (\033[31mUnsupported\033[0m)"
+    	echo -e "4) \033[31m Arm\033[0m    \t BCM53xx -->> $link"
     	echo -e "5) Language package for luci"
     	echo "q) Exit"
     	read -p "Input you chiose [1-5q]:" chiose
