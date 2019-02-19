@@ -80,8 +80,9 @@ defult_ins(){
     	echo -e "2) mipsel \t MTK -->> $link"
     	echo -e "3) mipsel_dsp MTK -->> Pandorabox"
     	echo -e "4) Arm    \t BCM53xx -->> $link"
+    	exho -e "5) Language package for luci"
     	echo "q) Exit"
-    	read -p "Input you chiose [1-4q]:" chiose
+    	read -p "Input you chiose [1-5q]:" chiose
     	case $chiose in
     		1 )
 				mips_ins
@@ -99,6 +100,9 @@ defult_ins(){
 				arm_ins
 				break
 				;;
+			5 )
+				language_ins
+				;;
 			q )
 				exit 0
 				;;
@@ -107,21 +111,4 @@ defult_ins(){
     
 }
 
-case $* in
-    mips )
-        mips_ins
-        ;;
-    mipsel )
-        mipsel_ins
-        ;;
-    arm )
-        arm_ins
-        ;;
-    lang )
-        language_ins
-        ;;
-    * )
-        defult_ins
-        ;;
-esac
-language_ins
+defult_ins
