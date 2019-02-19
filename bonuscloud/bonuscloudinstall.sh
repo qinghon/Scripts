@@ -80,7 +80,7 @@ defult_ins(){
     	echo -e "2) mipsel \t MTK -->> $link"
     	echo -e "3) mipsel_dsp MTK -->> Pandorabox"
     	echo -e "4) Arm    \t BCM53xx -->> $link"
-    	exho -e "5) Language package for luci"
+    	echo -e "5) Language package for luci"
     	echo "q) Exit"
     	read -p "Input you chiose [1-5q]:" chiose
     	case $chiose in
