@@ -67,10 +67,6 @@ language_ins(){
     exit 0
 }
 defult_ins(){
-    #echo -e "\033[31m 注意少部分路由器如K2P,新路由3会判断失败，请手动加上参数执行\033[0m "
-    #echo -e "比如\n bonuscloudinstall.sh mipsel \n"
-    #echo "装错了不要紧，卸载后重新来就好"
-
     link="https://bonuscloud.club/viewtopic.php?f=15&t=20"
     while :
     do
