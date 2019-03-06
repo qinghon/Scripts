@@ -90,12 +90,15 @@ restore(){
 
 help(){
     if  which dialog>/dev/null ;then
-        dialog --clear --title "Action choice" --menu "choose one" 12 35 5 1 "backup(备份)" 2 "restore(还原)"  2>/tmp/choose
+        dialog --clear --title "Action choice" --menu "choose one" 12 35 5 1 "backup(备份)" 2 "restore(还原)" 3 "only mount" 2>/tmp/choose
         ret=$(cat /tmp/choose )
         if [[ $ret -eq 1 ]]; then
             backup
         elif [[ $ret -eq 2 ]]; then
             restore
+        elif [[ $ret -eq 3 ]]; then
+            echo "emmc mounted!!you can free operation"
+            exit
         else
             exit
         fi
