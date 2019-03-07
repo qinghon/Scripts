@@ -87,30 +87,39 @@ restore(){
         echo "还原成功"
     fi
 }
+changemac(){
+    dialog --clear --title "Input MAC"  --inputbox "Please input  MAC,like 12:34:56:78:9A:BC" 15 40 2>/tmp/inputmac.txt
+    input_mac=$(cat /tmp/inputmac.txt|egrep -o '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}')
+    if [[ -n "$input_mac" ]]; then
+        sed -i '/^hwaddress.*#script$/'d $MMCPATH/etc/network/interfaces
+        sed -i "/^iface.*eth0/a\hwaddress ether $input_mac  #script" $MMCPATH/etc/network/interfaces
+    else
+        echo -e "input error. \n输入错误"
+    fi
+}
 
 help(){
     if  which dialog>/dev/null ;then
         dialog --clear --title "Action choice" --menu "choose one" 12 35 5 1 "backup(备份)" 2 "restore(还原)" 3 "only mount" 4 "Change(修改) eth0 MAC" 2>/tmp/choose
         ret=$(cat /tmp/choose )
-        if [[ $ret -eq 1 ]]; then
-            backup
-        elif [[ $ret -eq 2 ]]; then
-            restore
-        elif [[ $ret -eq 3 ]]; then
-            echo "emmc mounted!!you can free operation"
-            exit
-        elif [[ $ret -eq 4 ]]; then
-            dialog --clear --title "Input MAC"  --inputbox "Please input  MAC,like 12:34:56:78:9A:BC" 15 40 2>/tmp/inputmac.txt
-            input_mac=$(cat /tmp/inputmac.txt|egrep -o '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}')
-            if [[ -n "$input_mac" ]]; then
-                sed -i '/^hwaddress.*#script$/'d $MMCPATH/etc/network/interfaces
-                sed -i "/^iface.*eth0/a\hwaddress ether $input_mac  #script" $MMCPATH/etc/network/interfaces
-            else
-                echo -e "input error. \n输入错误"
-            fi
-        else
-            exit
-        fi
+        case $ret in
+            1 )
+                backup
+                ;;
+            2 )
+                restore
+                ;;
+            3 )
+                echo "emmc mounted!!you can free operation"
+                exit
+                ;;
+            4 )
+                changemac
+                ;;
+            * )
+                exit
+                ;;
+        esac
     else
         echo "Input 'sh $0 backup' or 'sh $0 restore'"
         echo "输入'sh $0 backup' 备份 或者 'sh $0 restore' 还原"
