@@ -76,7 +76,7 @@ backup(){
 restore(){
     BCLOUD_FILE=$(ls /boot/bcloud* |head -n 1 )
     echo "本次还原的证书文件名为 $BCLOUD_FILE "
-    tar -C $MMCPATH/ -xvz -f $BCLOUD_FILE  opt/bcloud/{node.db,ca.crt,client.key,client.crt}
+    tar -C $MMCPATH/ -xvz -f $BCLOUD_FILE  opt/bcloud/{node.db,ca.crt,client.key,client.crt} etc/network/interfaces
     func_verif
     res=`echo $?`
     if [ "$res" != 0 ] ;then
