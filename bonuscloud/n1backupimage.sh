@@ -13,13 +13,13 @@ MMC_BLOCK3="/dev/mmcblk0"
 mnt(){
     mkdir -p $MMCPATH
     if [ -b $MMC_BLOCK1 ]; then
-    	mount $MMC_BLOCK1 $MMCPATH
+    	mount -t ext4 $MMC_BLOCK1 $MMCPATH
     elif [ -b $MMC_BLOCK2 ]; then
     	echo "found $MMC_BLOCK2"
-    	mount $MMC_BLOCK2 $MMCPATH
+    	mount -t ext4 $MMC_BLOCK2 $MMCPATH
     elif [ -b $MMC_BLOCK3 ]; then
     	echo "Found $MMC_BLOCK3 and not found $MMC_BLOCK1 or $MMC_BLOCK2"
-    	mount -o loop,offset=$((512*1619968)) $MMC_BLOCK3 $MMCPATH
+    	mount -t ext4 -o loop,offset=$((512*1619968)) $MMC_BLOCK3 $MMCPATH
     else
     	echo "emmc  not found"
     	exit 1

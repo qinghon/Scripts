@@ -51,14 +51,16 @@ mipsel_ins(){
 language_ins(){
     
     read -p "Install language package? like fr , if n exit. default:[zh-cn]: " LANG
-    if [ -z $LANG ]; then
-        LANG="zh-cn"
-    elif [ "$LANG" == "n" -o "$LANG" == "N" ]; then
-        exit 0
-    fi
-    echo "language paskage :  luci-i18n-base-"$LANG""
-    opkg install  luci-i18n-base-"$LANG"
-    exit 0
+    case $LANG in
+        n|N|no|NO )
+            return
+            ;;
+        * )
+            echo "language paskage :  luci-i18n-base-"$LANG""
+            opkg install  luci-i18n-base-"$LANG"
+            exit 0
+            ;;
+    esac
 }
 defult_ins(){
     #echo -e "\033[31m 注意少部分路由器如K2P,新路由3会判断失败，请手动加上参数执行\033[0m "
