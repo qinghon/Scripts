@@ -6,8 +6,6 @@ MACADDR=`cat /sys/class/net/eth0/address|sed 's/://g'`
 begain(){
     mkdir -p /tmp/opt
     mkdir -p /tmp/etc/network
-
-    
     BXC_bcode=$(cat $BCLOUD/bcode)
     BXC_email=$(cat $BCLOUD/email)
     echo -n "{\"bcode\":\"$BXC_bcode\",\"email\":\"$BXC_email\"}" >$BCLOUD/node.db
