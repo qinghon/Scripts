@@ -108,22 +108,14 @@ help(){
         dialog --clear --title "Action choice" --menu "choose one" 12 35 5 1 "backup(备份)" 2 "restore(还原)" 3 "only mount" 4 "Change(修改) eth0 MAC" 2>/tmp/choose
         ret=$(cat /tmp/choose )
         case $ret in
-            1 )
-                backup
-                ;;
-            2 )
-                restore
-                ;;
+            1 ) backup ;;
+            2 ) restore;;
             3 )
                 echo "emmc mounted!!you can free operation"
                 exit
                 ;;
-            4 )
-                changemac
-                ;;
-            * )
-                exit
-                ;;
+            4 ) changemac ;;
+            * ) exit ;;
         esac
     else
         echo "Input 'sh $0 backup' or 'sh $0 restore'"
@@ -136,6 +128,10 @@ if [ "$ret_m" = "/"  ]; then
     MMCPATH="/"
 else
     mnt
+fi
+ret_u=`uname -m`
+if [[ ${ret} == "x86_64" ]]; then
+    MMCPATH="/"
 fi
 if [ -d "$MMCPATH"/opt/bcloud ]; then
     echo "mount emmc success!"
