@@ -75,7 +75,7 @@ sysArch(){
     if   [[ "$ARCH" == "i686" ]] || [[ "$ARCH" == "i386" ]]; then
         VDIS="32"
     elif [[ "$ARCH" == "x86_64" ]] ; then
-        VDIS="x86_64"
+        VDIS="amd64"
     elif [[ "$ARCH" == *"armv7"* ]] || [[ "$ARCH" == "armv6l" ]]; then
         VDIS="arm"
     elif [[ "$ARCH" == *"armv8"* ]] || [[ "$ARCH" == "aarch64" ]]; then
@@ -319,6 +319,7 @@ pull_docker_image(){
 }
 ins_k8s(){
     swapoff -a
+    sed -i 's/^\/swapfile/#\/swapfile/g' /etc/fstab
     if ! check_k8s ; then
         if [[ "$PG" == "apt" ]]; then
             _k8s_ins_apt
@@ -609,6 +610,38 @@ only_ins_network_base(){
         * ) bound&&systemctl stop bxc-node ;;
     esac
 }
+only_net_set_bridge(){
+    bxc_network_bridge_id=$(docker network ls -f name=bxc --format "{{.ID}}:{{.Name}}"|grep bxc-macvlan|awk -F: '{print $1}')
+    if [[ -n "${bxc_network_bridge_id}" ]]; then
+        return 0
+    fi
+    LINK=$DEFAULT_LINK
+    if [[ -n "${SET_LINK}" ]]; then
+        LINK=${SET_LINK}
+    fi
+    if echo "$LINK"|grep -q "wlan"; then
+        echoerr "THE Wireless Interface $LINK can not use macvlan;exit\n"
+        return 1
+    fi
+    if [[ -z "${LINK}" ]]; then
+        echoerr "NET Interface not found"
+        return 2
+    fi
+    LINK_GW=$(ip route list|grep 'default'|grep "$LINK"|awk '{print $3}')
+    LINK_SUBNET=$(ip addr show "${LINK}"|grep 'inet '|awk '{print $2}')
+    LINK_HOSTIP=$(echo "${LINK_SUBNET}"|awk -F/ '{print $1}')
+    ip link set "${LINK}" promisc on
+    if ! grep -q "${LINK} promisc" /etc/rc.local ; then
+        sed -i "/exit/i\ip link set ${LINK} promisc on" /etc/rc.local
+    fi
+    echoinfo "Set ip range(设置IP范围):";read -r -e -i "${LINK_SUBNET}" SET_RANGE
+    echo "docker network create -d macvlan --subnet=\"${LINK_SUBNET}\" --gateway=\"${LINK_GW}\" --aux-address=\"exclude_host=${LINK_HOSTIP}\" --ip-range=\"${SET_RANGE}\" -o parent=\"${LINK}\" bxc-macvlan"
+    docker network create -d macvlan --subnet="${LINK_SUBNET}" \
+    --gateway="${LINK_GW}" --aux-address="exclude_host=${LINK_HOSTIP}" \
+    --ip-range="${SET_RANGE}" \
+    -o parent="${LINK}" -o macvlan_mode="bridge" bxc-macvlan
+    
+}
 only_ins_network_docker_run(){
     bcode="$1"
     email="$2"
@@ -626,7 +659,7 @@ only_ins_network_docker_run(){
     --sysctl net.ipv6.conf.all.disable_ipv6=0 --mac-address="$mac_addr"\
     -e bcode="${bcode}" -e email="${email}" --name=bxc-"${bcode}" \
     -v bxc_data_"${bcode}":/opt/bcloud \
-    qinghon/bxc-op:18.06.2)
+    "${image_name}")
     echo "${con_id}"
     sleep 2
     fail_log=$(docker logs "${con_id}" 2>&1 |grep 'bonud fail'|head -n 1)
@@ -656,12 +689,17 @@ _get_ip_mainland(){
 only_ins_network_docker_openwrt(){
     ins_docker
     ins_jq
-    docker pull qinghon/bxc-op:18.06.2
-    docker tag qinghon/bxc-op:18.06.2 bxc-op:18.06.2
-    if ! docker images --format "{{.Repository}}"|grep -q bxc-op ; then
+    local image_name=""
+    case $VIDS in
+        x86_64 ) image_name="qinghon/bxc-net:amd64" ;;
+        arm64  ) image_name="qinghon/bxc-net:arm64" ;;
+    esac
+    docker pull "${image_name}"
+    if ! docker images --format "{{.Repository}}"|grep -q bxc-net ; then
         echoerr "pull failed,exit!"
         return 1
     fi
+    only_net_set_bridge
     echoinfo "Input bcode:";read -r  bcode
     echoinfo "Input email:";read -r  email
     if [[ -z "${bcode}" ]] || [[ -z "${email}" ]]; then
@@ -697,11 +735,7 @@ only_ins_network_docker_openwrt(){
             len=1
         fi
     fi
-    bxc_network_bridge_id=$(docker network ls -f name=bxc --format "{{.ID}}:{{.Name}}"|grep bxc|awk -F: '{print $1}')
-    if [[ -z "${bxc_network_bridge_id}" ]]; then
-        docker network create  bxc
-    fi
-    
+
     for i in $(echo "${read_all_bcode}"|head -n "$len") ; do
         echoinfo "bcode: $i\n"
         only_ins_network_docker_run "${i}" "${email}"
@@ -809,11 +843,11 @@ mg(){
         esac
     }
     # network check
-    network_docker=$(docker images --format "{{.Repository}}"|grep -q bxc-op;echo $?)
-    network_file_have=$([ -s ${BASE_DIR}/bxc-network ] || [ "${network_docker}" -eq 0 ];echo $?)   
+    network_docker=$(docker images --format "{{.Repository}}"|grep -q bxc-net;echo $?)
+    network_file_have=$([[ -s ${BASE_DIR}/bxc-network || "${network_docker}" -eq 0 ]];echo $?)   
     
     network_progress=$(pgrep bxc-network>/dev/null;echo $?)
-    [[ ${network_progress} -eq 0 ]] &&network_con_id=$(docker ps --filter="ancestor=bxc-op:18.06.2" --format "{{.ID}}"|head -n 1)
+    [[ ${network_progress} -eq 0 ]] &&network_con_id=$(docker ps --filter="ancestor=bxc-net:$VDIS" --format "{{.ID}}"|head -n 1)
     
     tun0exits=$(ip link show tun0 >/dev/null 2>&1 ;echo $?)
     [[ ${network_file_have} -eq 0 ]] &&tun0exits=$(ip link show tun0 >/dev/null 2>&1 ;echo $?)
