@@ -665,17 +665,24 @@ only_ins_network_docker_run(){
         mac_addr=$(od /dev/urandom -w6 -tx1 -An|sed -e 's/ //' -e 's/ /:/g'|head -n 1)
         echoinfo "Generate a mac address: $mac_addr\n"
     fi
+    mac_head_tmp=$(echo "$mac_addr"|awk -F: '{print $1,$2}'|sed 's/ /:/g')
     if [[ $_SET_IP_ADDRESS -eq 1 ]]; then
         local set_ipaddress=""
         local ipaddress=""
         echoinfo "Set ip address:\n" ;read -r ipaddress
         set_ipaddress="--ip=\"${ipaddress}\""
+        con_id=$(docker run -d --cap-add=NET_ADMIN --net=bxc-macvlan --ip="$ipaddress" --device /dev/net/tun --restart=always \
+        --sysctl net.ipv6.conf.all.disable_ipv6=0 --mac-address="$mac_addr" \
+        -e bcode="${bcode}" -e email="${email}" --name=bxc-"${bcode}" \
+        -v bxc_data_"${bcode}":/opt/bcloud \
+        "${image_name}")
+    else
+        con_id=$(docker run -d --cap-add=NET_ADMIN --net=bxc-macvlan --device /dev/net/tun --restart=always \
+            --sysctl net.ipv6.conf.all.disable_ipv6=0 --mac-address="$mac_addr" \
+            -e bcode="${bcode}" -e email="${email}" --name=bxc-"${bcode}" \
+            -v bxc_data_"${bcode}":/opt/bcloud \
+            "${image_name}")
     fi
-    con_id=$(docker run -d --cap-add=NET_ADMIN --net=bxc-macvlan $set_ipaddress --device /dev/net/tun --restart=always \
-    --sysctl net.ipv6.conf.all.disable_ipv6=0 --mac-address="$mac_addr"\
-    -e bcode="${bcode}" -e email="${email}" --name=bxc-"${bcode}" \
-    -v bxc_data_"${bcode}":/opt/bcloud \
-    "${image_name}")
     echo "${con_id}"
     sleep 2
     fail_log=$(docker logs "${con_id}" 2>&1 |grep 'bonud fail'|head -n 1)
@@ -855,7 +862,7 @@ set_interfaces_name(){
 }
 only_net_show(){
     #set -x
-    IDs=$(docker ps -a --filter="ancestor=bxc-op:18.06.2" --format "{{.ID}}")
+    IDs=$(docker ps -a --filter="ancestor=qinghon/bxc-net:$VDIS" --format "{{.ID}}")
     echoerr "Status\t\ttun0 Status\t\tcontainer ID\n"
     echoinfo "Status\t\ttun0 Status\tIP\t\tMAC address\n"
     echo "--------------------------------------------------------------------------------"
@@ -891,14 +898,14 @@ mg(){
     network_file_have=$([[ -s ${BASE_DIR}/bxc-network || "${network_docker}" -eq 0 ]];echo $?)   
     
     network_progress=$(pgrep bxc-network>/dev/null;echo $?)
-    [[ ${network_progress} -eq 0 ]] &&network_con_id=$(docker ps --filter="ancestor=bxc-net:$VDIS" --format "{{.ID}}"|head -n 1)
+    [[ ${network_progress} -eq 0 ]] &&network_con_id=$(docker ps --filter="ancestor=qinghon/bxc-net:$VDIS" --format "{{.ID}}"|head -n 1)
     
     tun0exits=$(ip link show tun0 >/dev/null 2>&1 ;echo $?)
     [[ ${network_file_have} -eq 0 ]] &&tun0exits=$(ip link show tun0 >/dev/null 2>&1 ;echo $?)
     [[ ${network_docker} -eq 0  && -n "${network_con_id}" ]] &&tun0exits=$(docker exec -i "${network_con_id}" /bin/sh -c "ip link show dev tun0>/dev/null;echo $?")
     [[ $network_file_have -ne 0 && -z "${network_con_id}" ]] &&tun0exits=1
 
-    goproxy_progress=$(goproxy_check >/dev/null ;echo $?)
+    goproxy_progress=$(goproxy_check >/dev/null 2>&1 ;echo $?)
     [[ -n "${network_con_id}" ]] &&goproxy_progress=$(docker exec -i "${network_con_id}" /bin/sh -c "pgrep bxc-worker>/dev/null;echo $?")
     # node check
     node_progress=$(pgrep  node>/dev/null;echo $?)
@@ -1016,8 +1023,8 @@ while  getopts "bdiknrsceghI:tSH" opt ; do
     esac
 done
 
-[[ $_SHOW_STATUS -eq 1 && $_ONLY_NET -eq 1 ]] &&_ONLY_NET=0&& _SHOW_STATUS=0&&only_net_show
 [[ $_SYSARCH -eq 1 ]]       &&sysArch 
+[[ $_SHOW_STATUS -eq 1 && $_ONLY_NET -eq 1 ]] &&_ONLY_NET=0&& _SHOW_STATUS=0&&only_net_show
 [[ $_INIT -eq 1 ]]          &&init
 [[ $_DOCKER_INS -eq 1 ]]    &&env_check;ins_docker
 [[ $_NODE_INS -eq 1 ]]      &&node_ins
