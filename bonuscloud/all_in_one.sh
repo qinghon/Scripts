@@ -652,14 +652,17 @@ only_net_set_bridge(){
 only_ins_network_docker_run(){
     bcode="$1"
     email="$2"
-    local mac_head="bc:10"
     random_mac_addr=$(od /dev/urandom -w4 -tx1 -An|sed -e 's/ //' -e 's/ /:/g'|head -n 1)
-    echoinfo "Set mac address:\n";read -r -e -i "${mac_head}:${random_mac_addr}" mac_addr
-    clear_mac_addr=$(echo "${mac_addr}"|grep -E -o '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}')
-    if [[ -z "${clear_mac_addr}" ]]; then
+    if [[ -z $mac_head ]]; then
+        local mac_head_tmp=$(od /dev/urandom -w2 -tx1 -An|sed -e 's/ //' -e 's/ /:/g'|head -n 1)
+        echoinfo "Set mac address:\n";read -r -e -i "${mac_head_tmp}:${random_mac_addr}" mac_addr
+    else
+        echoinfo "Set mac address:\n";read -r -e -i "${mac_head}:${random_mac_addr}" mac_addr
+    fi
+    check_mac_addr=$(echo "${mac_addr}"|grep -E -o '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}')
+    if [[ -z "${check_mac_addr}" ]]; then
         echowarn "Input mac address type fail, "
-        mac_addr=$(od /dev/urandom -w4 -tx1 -An|sed -e 's/ //' -e 's/ /:/g'|head -n 1)
-        mac_addr="${mac_head}:${mac_addr}"
+        mac_addr=$(od /dev/urandom -w6 -tx1 -An|sed -e 's/ //' -e 's/ /:/g'|head -n 1)
         echoinfo "Generate a mac address: $mac_addr\n"
     fi
     if [[ $_SET_IP_ADDRESS -eq 1 ]]; then
@@ -688,7 +691,10 @@ only_ins_network_docker_run(){
         docker container rm "${con_id}"
         return 
     else
-        sed -i 's/local mac_head="......"/local mac_head="${mac_head}:"/g' "$0"
+        if [[ -z $mac_head ]]; then
+            mac_head="$mac_head_tmp"
+            sed -i "s/local mac_head=\"\"/local mac_head=\"${mac_head_tmp}:\"/g" "$0"
+        fi
     fi
     echo "--------------------------------------------------------------------------------"
 }
@@ -705,6 +711,7 @@ only_ins_network_docker_openwrt(){
     ins_docker
     ins_jq
     local image_name=""
+    local mac_head=""
     case $VDIS in
         amd64  ) image_name="qinghon/bxc-net:amd64" ;;
         arm64  ) image_name="qinghon/bxc-net:arm64" ;;
