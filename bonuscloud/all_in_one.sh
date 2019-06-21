@@ -98,6 +98,23 @@ sysArch(){
     fi
     return 0
 }
+sys_codename(){
+    if  which lsb_release >/dev/null ; then
+        OS_CODENAME=$(lsb_release -cs)
+    fi
+}
+run_as_root(){
+    if [[ $(id -u) -eq 0 ]]; then
+        return 0
+    fi
+    if which sudo >/dev/null ; then
+        echoerr "Please run as sudo:\nsudo bash $0 $1\n"
+    else
+        echoerr "Please run as root user!\n"
+    fi
+    
+    
+}
 env_check(){
     # Detection package manager
     if which apt >/dev/null ; then
@@ -127,7 +144,6 @@ env_check(){
     chmod +x $TMP/screenfetch
     OS_line=$($TMP/screenfetch -n |grep 'OS:')
     OS=$(echo "$OS_line"|awk '{print $3}'|tr '[:upper:]' '[:lower:]')
-    OS_CODENAME=$(echo "$OS_line"|awk '{print $5}'|tr '[:upper:]' '[:lower:]')
     if [[ -z "$OS" ]]; then
         read -r -p "The release version is not detected, please enter it manually,like \"ubuntu\"" OS
     fi
@@ -700,7 +716,7 @@ only_ins_network_docker_run(){
     else
         if [[ -z $mac_head ]]; then
             mac_head="$mac_head_tmp"
-            sed -i "s/local mac_head=\"\"/local mac_head=\"${mac_head_tmp}:\"/g" "$0"
+            sed -i "s/local mac_head=\"\"/local mac_head=\"${mac_head_tmp}\"/g" "$0"
         fi
     fi
     echo "--------------------------------------------------------------------------------"
@@ -870,7 +886,7 @@ only_net_show(){
         inspect=$(docker container inspect "${i}")
         Status=$(echo "$inspect"|grep -Po '"Status": "\K.*?(?=")')
         have_tun0=$(docker exec -i "$i" /bin/sh -c "ip addr show dev >/dev/null 2>&1;echo $?" 2>/dev/null)
-        ipaddress=$(echo "$inspect"|grep -Po '"IPAddress": "\K.*?(?=")')
+        ipaddress=$(echo "$inspect"|grep -Po '"IPAddress": "\K.*?(?=")'|head -n 1)
         mac_addr=$(echo "$inspect"|grep -Po '"MacAddress": "\K.*?(?=")'|sed -n '2p')
         if [[ "$Status" == "running" ]]; then
             echoinfo "${Status}\t\ttun0 run\t${ipaddress}\t${mac_addr}\n"
@@ -1005,28 +1021,28 @@ fi
 
 while  getopts "bdiknrsceghI:tSH" opt ; do
     case $opt in
-        i ) _INIT=1 ;;
-        b ) _BOUND=1 ;;
-        d ) _DOCKER_INS=1  ;;
-        k ) _K8S_INS=1 ;;
-        n ) _NODE_INS=1 ;;
-        r ) _REMOVE=1 ;;
-        s ) _TELEPORT=1 ;;
-        e ) _SET_ETHX=1 ;;
-        h ) displayhelp ;;
-        t ) _SHOW_STATUS=1 ;;
-        g ) _ONLY_NET=1 ;;
+        i ) _INIT=1         ;;
+        b ) _BOUND=1        ;;
+        d ) _DOCKER_INS=1   ;;
+        k ) _K8S_INS=1      ;;
+        n ) _NODE_INS=1     ;;
+        r ) _REMOVE=1       ;;
+        s ) _TELEPORT=1     ;;
+        e ) _SET_ETHX=1     ;;
+        h ) displayhelp     ;;
+        t ) _SHOW_STATUS=1  ;;
+        g ) _ONLY_NET=1     ;;
         I ) _select_interface "${OPTARG}" ;;
         S ) DISPLAYINFO="1" ;;
-        H ) _SET_IP_ADDRESS=1 ;;
+        H ) _SET_IP_ADDRESS=1   ;;
         ? ) echoerr "Unknow arg. exiting" ;displayhelp; exit 1 ;;
     esac
 done
 
-[[ $_SYSARCH -eq 1 ]]       &&sysArch 
+[[ $_SYSARCH -eq 1 ]]       &&sysArch   &&sys_codename  &&run_as_root "$*"
 [[ $_SHOW_STATUS -eq 1 && $_ONLY_NET -eq 1 ]] &&_ONLY_NET=0&& _SHOW_STATUS=0&&only_net_show
 [[ $_INIT -eq 1 ]]          &&init
-[[ $_DOCKER_INS -eq 1 ]]    &&env_check;ins_docker
+[[ $_DOCKER_INS -eq 1 ]]    &&env_check &&ins_docker
 [[ $_NODE_INS -eq 1 ]]      &&node_ins
 [[ $_TELEPORT -eq 1 ]]      &&ins_teleport
 [[ $_CHANGE_KN -eq 1 ]]     &&ins_kernel
