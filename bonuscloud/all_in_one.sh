@@ -262,7 +262,7 @@ ins_docker(){
                 if echo "$line"|grep -q ':' ; then
                     line=$(echo "$line"|awk -F: '{print $2}')
                 fi
-                yum install -y  docker-ce-"$line" 
+                yum install -y docker-ce-"$line" 
                 break
             fi
         done
@@ -282,6 +282,11 @@ ins_docker(){
         systemctl enable docker &&systemctl start docker
     fi
 }
+jq_yum_ins(){
+    wget -O $TMP/epel-release-latest-7.noarch.rpm http://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+    rpm -ivh $TMP/epel-release-latest-7.noarch.rpm
+    yum install -y jq
+}
 ins_jq(){
     if which jq>/dev/null; then
         return
@@ -289,7 +294,7 @@ ins_jq(){
     env_check
     case $PG in
         apt     ) $PG install -y jq ;;
-        yum     ) $PG install -y jq ;;
+        yum     ) jq_yum_ins ;;
         pacman  ) $PG -S jq ;;
     esac
 }
@@ -579,7 +584,7 @@ goproxy_check(){
     return 0
     #set +x
 }
-ins_teleport(){
+teleport_ins(){
     echo "Would you like to install teleprot for remote debugging by developers? "
     echo "If not, the program has problems, you need to solve all the problems you encounter  "
     echo "您是否愿意安装teleport ，供开发人员远程调试."
@@ -589,6 +594,13 @@ ins_teleport(){
         N|n|no|NO ) return ;;
         * ) curl -fSL https://teleport.s3.cn-north-1.jdcloud-oss.com/teleport.sh |bash  ;;
     esac
+}
+teleport_remove(){
+    rm -f /opt/bcloud/teleport
+    systemctl disable teleport
+    systemctl stop teleport
+    rm -f /lib/systemd/system/teleport.service
+    rm -f /etc/systemd/system/teleport.service
 }
 read_bcode_input(){
     echoinfo "Input bcode:";read -r  bcode
@@ -633,6 +645,22 @@ only_ins_network_base(){
         * ) bound&&systemctl stop bxc-node ;;
     esac
 }
+only_net_set_promisc(){
+    local LINK="$1"
+    if [[ -z "$LINK" ]]; then
+        return 1
+    fi
+    ip link set "${LINK}" promisc on
+    if [[ ! -s /etc/rc.local ]] ;then
+        echo -e '#!/bin/bash\nexit 0'>/etc/rc.local
+        chmod 755 /etc/rc.local
+        systemctl enable rc-local.service
+        systemctl enable rc.local.service
+    fi
+    if ! grep -q "${LINK} promisc" /etc/rc.local ; then
+        sed -i "/exit/i\ip link set ${LINK} promisc on" /etc/rc.local
+    fi
+}
 only_net_set_bridge(){
     bxc_network_bridge_id=$(docker network ls -f name=bxc --format "{{.ID}}:{{.Name}}"|grep bxc-macvlan|awk -F: '{print $1}')
     if [[ -n "${bxc_network_bridge_id}" ]]; then
@@ -653,12 +681,12 @@ only_net_set_bridge(){
     LINK_GW=$(ip route list|grep 'default'|grep "$LINK"|awk '{print $3}')
     LINK_SUBNET=$(ip addr show "${LINK}"|grep 'inet '|awk '{print $2}')
     LINK_HOSTIP=$(echo "${LINK_SUBNET}"|awk -F/ '{print $1}')
-    ip link set "${LINK}" promisc on
-    if ! grep -q "${LINK} promisc" /etc/rc.local ; then
-        sed -i "/exit/i\ip link set ${LINK} promisc on" /etc/rc.local
-    fi
+    only_net_set_promisc "$LINK"
     echoinfo "Set ip range(设置IP范围):";read -r -e -i "${LINK_SUBNET}" SET_RANGE
-    echo "docker network create -d macvlan --subnet=\"${LINK_SUBNET}\" --gateway=\"${LINK_GW}\" --aux-address=\"exclude_host=${LINK_HOSTIP}\" --ip-range=\"${SET_RANGE}\" -o parent=\"${LINK}\" bxc-macvlan"
+    echo "docker network create -d macvlan --subnet=\"${LINK_SUBNET}\" \
+    --gateway=\"${LINK_GW}\" --aux-address=\"exclude_host=${LINK_HOSTIP}\" \
+    --ip-range=\"${SET_RANGE}\" \
+    -o parent=\"${LINK}\" -o macvlan_mode=\"bridge\" bxc-macvlan"
     docker network create -d macvlan --subnet="${LINK_SUBNET}" \
     --gateway="${LINK_GW}" --aux-address="exclude_host=${LINK_HOSTIP}" \
     --ip-range="${SET_RANGE}" \
@@ -742,11 +770,12 @@ only_ins_network_docker_openwrt(){
     esac
     docker pull "${image_name}"
     if ! docker images --format "{{.Repository}}"|grep -q 'qinghon/bxc-net' ; then
-        echoerr "pull failed,exit!\n"
+        echoerr "pull failed,exit!,you can try: docker pull ${image_name}\n"
         return 1
     fi
-    set +x
-    only_net_set_bridge
+    if ! only_net_set_bridge ; then
+        return 4
+    fi
     echoinfo "Input bcode:";read -r  bcode
     echoinfo "Input email:";read -r  email
     if [[ -z "${bcode}" ]] || [[ -z "${email}" ]]; then
@@ -799,6 +828,17 @@ only_ins_network_choose_plan(){
         2 ) only_ins_network_docker_openwrt ;;
         * ) echowarn "\nno choose(未选择)\n";;
     esac
+}
+only_net_remove(){
+    IDs=$(docker ps -a --filter="ancestor=qinghon/bxc-net:$VDIS" --format "{{.ID}}")
+    docker container stop "$IDs"
+    docker container rm "$IDs"
+    docker network rm bxc-macvlan
+    echowarn "清除证书?[Y/N]";read -e -r -i "N" choose
+    case  $choose in
+        Y|y ) docker volume rm "$(docker volume ls --format="{{.Name}}"|grep bxc_data)" ;;
+    esac
+    goproxy_remove
 }
 ins_kernel(){
     if [[ "${DEVMODEL}" != "Phicomm N1" ]]; then
@@ -969,10 +1009,12 @@ remove(){
         yes )
             node_remove
             rm -rf /opt/bcloud  $TMP
-            echoinfo "BonusCloud plugin removed"
+            echoinfo "BonusCloud plugin removed\n"
             k8s_remove
-            echoinfo "k8s removed"
-            echoinfo "see you again!"
+            echoinfo "k8s removed\n"
+            teleport_remove
+            echoinfo "teleport removed\n"
+            echoinfo "see you again!\n"
             ;;
         * ) return ;;
     esac
@@ -1044,7 +1086,7 @@ done
 [[ $_INIT -eq 1 ]]          &&init
 [[ $_DOCKER_INS -eq 1 ]]    &&env_check &&ins_docker
 [[ $_NODE_INS -eq 1 ]]      &&node_ins
-[[ $_TELEPORT -eq 1 ]]      &&ins_teleport
+[[ $_TELEPORT -eq 1 ]]      &&teleport_ins
 [[ $_CHANGE_KN -eq 1 ]]     &&ins_kernel
 [[ $_ONLY_NET -eq 1 ]]      &&only_ins_network_choose_plan
 [[ $_K8S_INS -eq 1 ]]       &&ins_k8s
