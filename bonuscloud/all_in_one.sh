@@ -2,6 +2,7 @@
 
 #https://github.com/BonusCloud/BonusCloud-Node/issues
 #Author qinghon https://github.com/qinghon
+
 OS=""
 OS_CODENAME=""
 PG=""
@@ -24,6 +25,7 @@ SET_LINK=""
 MACADDR=""
 
 TMP="tmp"
+mkdir -p $TMP
 LOG_FILE="ins.log"
 
 K8S_LOW="1.12.3"
@@ -41,9 +43,7 @@ mirror_pods=(
     "https://raw.githubusercontent.com/BonusCloud/BonusCloud-Node/master"
     "https://raw.githubusercontent.com/qinghon/BonusCloud-Node/master"
 )
-mkdir -p $TMP
-DISPLAYINFO="0"
-_SET_IP_ADDRESS=0
+
 
 echoerr(){
     printf "\033[1;31m$1\033[0m"
@@ -109,11 +109,11 @@ run_as_root(){
     fi
     if which sudo >/dev/null ; then
         echoerr "Please run as sudo:\nsudo bash $0 $1\n"
+        exit 1
     else
         echoerr "Please run as root user!\n"
+        exit 2
     fi
-    
-    
 }
 env_check(){
     # Detection package manager
@@ -389,13 +389,16 @@ _set_node_systemd(){
     else
         INSERT_STR="--intf ${SET_LINK}"
     fi
+    if [[ ${_DON_SET_DISK} -eq 1 ]]; then
+        DON_SET_DISK="--devoff"
+    fi
     cat <<EOF >/lib/systemd/system/bxc-node.service
 [Unit]
 Description=bxc node app
 After=network.target
 
 [Service]
-ExecStart=/opt/bcloud/nodeapi/node --alsologtostderr ${INSERT_STR}
+ExecStart=/opt/bcloud/nodeapi/node --alsologtostderr ${INSERT_STR} ${DON_SET_DISK}
 Restart=always
 RestartSec=10
 
@@ -1024,21 +1027,27 @@ displayhelp(){
     echo -e "\033[2J"
     echo "bash $0 [option]" 
     echo -e "    -h             Print this and exit"
+    echo -e "    -b             bound for command"
+    echo -e "    -d             Only install docker"
+    echo -e "    -c             change kernel to compiled dedicated kernels,only \"Phicomm N1\"" 
+    echo -e "                   and is danger!"
     echo -e "    -i             Installation environment check and initialization"
     echo -e "    -k             Install the k8s environment and the k8s components that" 
     echo -e "                   BonusCloud depends on"
-    echo -e "    -n             Install node management components"
+    echo -e "    -n             Only install node management components "
     echo -e "    -r             Fully remove bonuscloud plug-ins and components"
     echo -e "    -s             Install teleport for remote debugging by developers"
-    echo -e "    -c             change kernel to compiled dedicated kernels,only \"Phicomm N1\"" 
-    echo -e "                   and is danger!"
-    echo -e "    -e             set interfaces name to ethx"
+    echo -e "    -t             Show all plugin running status"
+    echo -e "    -e             Set interfaces name to ethx,only x86_64 and using grub"
     echo -e "    -g             Install network job only"
-    echo -e "    -b             bound for command"
+    echo -e "     └── -H        Set ip for container"
+    echo -e "    -D             Don't set disk for node program"
     echo -e "    -I Interface   set interface name to you want"
     echo -e "    -S             show Info level output "
     exit 0
 }
+
+DISPLAYINFO="0"
 
 _SYSARCH=1
 _INIT=0
@@ -1052,6 +1061,8 @@ _K8S_INS=0
 _BOUND=0
 _SHOW_STATUS=0
 _SET_ETHX=0
+_DON_SET_DISK=0
+_SET_IP_ADDRESS=0
 
 if [[ $# == 0 ]]; then
     _INIT=1
@@ -1061,10 +1072,11 @@ if [[ $# == 0 ]]; then
     _K8S_INS=1
 fi
 
-while  getopts "bdiknrsceghI:tSH" opt ; do
+while  getopts "bdiknrstceghI:DSH" opt ; do
     case $opt in
         i ) _INIT=1         ;;
         b ) _BOUND=1        ;;
+        c ) _CHANGE_KN=1    ;;
         d ) _DOCKER_INS=1   ;;
         k ) _K8S_INS=1      ;;
         n ) _NODE_INS=1     ;;
@@ -1074,6 +1086,7 @@ while  getopts "bdiknrsceghI:tSH" opt ; do
         h ) displayhelp     ;;
         t ) _SHOW_STATUS=1  ;;
         g ) _ONLY_NET=1     ;;
+        D ) _DON_SET_DISK=1 ;;
         I ) _select_interface "${OPTARG}" ;;
         S ) DISPLAYINFO="1" ;;
         H ) _SET_IP_ADDRESS=1   ;;
@@ -1084,7 +1097,7 @@ done
 [[ $_SYSARCH -eq 1 ]]       &&sysArch   &&sys_codename  &&run_as_root "$*"
 [[ $_SHOW_STATUS -eq 1 && $_ONLY_NET -eq 1 ]] &&_ONLY_NET=0&& _SHOW_STATUS=0&&only_net_show
 [[ $_INIT -eq 1 ]]          &&init
-[[ $_DOCKER_INS -eq 1 ]]    &&env_check &&ins_docker
+[[ $_DOCKER_INS -eq 1 ]]    &&ins_docker
 [[ $_NODE_INS -eq 1 ]]      &&node_ins
 [[ $_TELEPORT -eq 1 ]]      &&teleport_ins
 [[ $_CHANGE_KN -eq 1 ]]     &&ins_kernel
