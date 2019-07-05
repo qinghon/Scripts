@@ -46,14 +46,11 @@ mirror_pods=(
 )
 
 
-echoerr(){
-    printf "\033[1;31m$1\033[0m"
+echoerr(){ printf "\033[1;31m$1\033[0m" 
 }
-echoinfo(){
-    printf "\033[1;32m$1\033[0m"
+echoinfo(){ printf "\033[1;32m$1\033[0m"
 }
-echowarn(){
-    printf "\033[1;33m$1\033[0m"
+echowarn(){ printf "\033[1;33m$1\033[0m"
 }
 echo-(){
     local columns
@@ -721,9 +718,7 @@ only_net_set_bridge(){
         return 3
     fi
 }
-only_ins_network_docker_run(){
-    bcode="$1"
-    email="$2"
+generate_mac_addr(){
     random_mac_addr=$(od /dev/urandom -w4 -tx1 -An|sed -e 's/ //' -e 's/ /:/g'|head -n 1)
     if [[ -z $mac_head ]]; then
         local mac_head_tmp
@@ -737,6 +732,23 @@ only_ins_network_docker_run(){
         echowarn "Input mac address type fail, "
         mac_addr=$(od /dev/urandom -w6 -tx1 -An|sed -e 's/ //' -e 's/ /:/g'|head -n 1)
         echoinfo "Generate a mac address: $mac_addr\n"
+    fi
+}
+run_command(){
+    $1
+    return $?
+}
+only_ins_network_docker_run(){
+    bcode="$1"
+    email="$2"
+    set -x
+    mac_import="$3"
+    local mac_addr
+    #local mac_head="$mac_head"
+    if [[ -n $mac_import ]] ;then 
+        mac_addr="$mac_import"
+    else
+        generate_mac_addr
     fi
     mac_head_tmp=$(echo "$mac_addr"|awk -F: '{print $1,$2}'|sed 's/ /:/g')
     if [[ $_SET_IP_ADDRESS -eq 1 ]]; then
@@ -757,7 +769,7 @@ only_ins_network_docker_run(){
             "${image_name}")
     fi
     echo "${con_id}"
-    sleep 2
+    sleep 3
     fail_log=$(docker logs "${con_id}" 2>&1 |grep 'bonud fail'|head -n 1)
     if [[ -n "${fail_log}" ]]; then
         echoerr "bound fail\n${fail_log}\n"
@@ -765,7 +777,7 @@ only_ins_network_docker_run(){
         docker rm "${con_id}"
         return 
     fi
-    create_status=$(docker container inspect "${con_id}"|grep -Po '"Status": "\K.*?(?=")')
+    create_status=$(docker container inspect "${con_id}" --format "{{.State.Status}}")
     if [[ "$create_status" == "created" ]]; then
         echowarn "Delete can not run container\n"
         docker container rm "${con_id}"
@@ -776,7 +788,7 @@ only_ins_network_docker_run(){
             sed -i "s/local mac_head=\"\"/local mac_head=\"${mac_head_tmp}\"/g" "$0"
         fi
     fi
-    echo "--------------------------------------------------------------------------------"
+    echo-
 }
 _get_ip_mainland(){
     geoip=$(curl -4 -fsSL "https://api.ip.sb/geoip")
@@ -787,7 +799,7 @@ _get_ip_mainland(){
         return 1
     fi
 }
-only_ins_network_docker_openwrt(){
+_only_net_get_image(){
     ins_docker
     ins_jq
     local image_name=""
@@ -797,9 +809,19 @@ only_ins_network_docker_openwrt(){
         arm64  ) image_name="qinghon/bxc-net:arm64" ;;
         *      ) echoerr "No support $VDIS\n";return 4  ;;
     esac
+    echoinfo "Downloading $image_name ...\n"
     docker pull "${image_name}"
     if ! docker images --format "{{.Repository}}"|grep -q 'qinghon/bxc-net' ; then
         echoerr "pull failed,exit!,you can try: docker pull ${image_name}\n"
+        return 1
+    fi
+}
+only_ins_network_docker_openwrt(){
+    ins_docker
+    ins_jq
+    local image_name=""
+    local mac_head=""
+    if ! _only_net_get_image ; then
         return 1
     fi
     if ! only_net_set_bridge ; then
@@ -871,7 +893,28 @@ only_net_cert_export(){
     done
     echoinfo "backup all over!files in $ABSOLUTE_PATH/$TMP\n"
 }
+only_net_cert_import_run(){
+    local FILEs bcode_ email_ mac_addr_ image_name
+    FILEs=$(find . -name 'bxc_data_*.tar')
+    [[ -z "$FILEs" ]]&&echoerr "not found certificate file,exit"&&return 1
+    if ! _only_net_get_image ; then
+        return 1
+    fi
+    echoinfo "Find $(echo "${FILEs}"|grep -c '') file\n"
+    for i in $FILEs ;do
+        info=$(tar -xf "$i" opt/bcloud/node.db -O 2>/dev/null)
+        if [[ -z $info ]]; then
+            echoerr "not found bcode from $i\n"
+            continue
+        fi
+        bcode_=$(echo "$info"|jq -r '.bcode')
+        email_=$(echo "$info"|jq -r '.email')
+        mac_addr_=$(echo "$info"|jq -r '.mac_address')
+        only_ins_network_docker_run "$bcode_" "$email_" "$mac_addr_"
+    done
+}
 only_net_cert_import(){
+    local FILEs
     FILEs=$(find . -name 'bxc_data_*.tar')
     [[ -z "$FILEs" ]]&&echoerr "not found certificate file,exit"&&return 1
     echoinfo "Find $(echo "${FILEs}"|grep -c '') file\n"
@@ -890,6 +933,10 @@ only_net_cert_import(){
         docker rm "bxc_date_tmp_$bcode" 1>/dev/null
         set +x
     done
+    read -r -e -p "Run it now?:" -i "Y"  choose
+    case $choose in
+        Y|y ) only_net_cert_import_run ;;
+    esac
 }
 only_net_remove(){
     IDs=$(docker ps -a --filter="ancestor=qinghon/bxc-net:$VDIS" --format "{{.ID}}")
