@@ -140,7 +140,7 @@ env_check(){
     ret_c=$(which curl >/dev/null;echo $?)
     ret_w=$(which wget >/dev/null;echo $?)
     case ${PG} in
-        apt ) $PG install -y curl wget apt-transport-https ;;
+        apt ) $PG install -y curl wget apt-transport-https pciutils bc;;
         yum ) $PG install -y curl wget ;;
     esac
     # Check if the system supports
@@ -150,7 +150,15 @@ env_check(){
     OS_line=$($TMP/screenfetch -n |grep 'OS:')
     OS=$(echo "$OS_line"|awk '{print $3}'|tr '[:upper:]' '[:lower:]')
     if [[ -z "$OS" ]]; then
-        read -r -p "The release version is not detected, please enter it manually,like \"ubuntu\"" OS
+        source /etc/os-release
+        if echo "${support_os[@]}"|grep -w "$ID" &>/dev/null  ; then
+            OS="$ID"
+            case $ID in
+                ubuntu ) OS_CODENAME="$VERSION_CODENAME" ;;
+            esac
+        else
+            read -r -p "The release version is not detected, please enter it manually,like \"ubuntu\"" OS
+        fi
     fi
     if ! echo "${support_os[@]}"|grep -w "$OS" &>/dev/null ; then
         log "[error]" "This system is not supported by docker, exit"
@@ -284,6 +292,7 @@ ins_docker(){
         log "[error]" "package manager ${PG} not support "
         return 1
     fi
+    usermod -aG docker $USER
     systemctl enable docker.service
     systemctl start docker.service
     check_doc
@@ -316,7 +325,7 @@ ins_jq(){
 }
 init(){
     # 初始化目录/文件
-    echo >$LOG_FILE
+    printf "">$LOG_FILE
     if ! systemctl enable ntp  >/dev/null 2>&1 ; then
         timedatectl set-ntp true
     else
@@ -403,7 +412,7 @@ ins_conf(){
 _set_node_systemd(){
     # 指定网卡启动node
     if [[ -z "${SET_LINK}" ]]; then
-        INSERT_STR="#--intf ${DEFAULT_LINK}"
+        INSERT_STR=""
     else
         INSERT_STR="--intf ${SET_LINK}"
     fi
@@ -434,7 +443,7 @@ node_ins(){
         Rlink="$Rlink/5.0.0-aml-N1-BonusCloud"
     fi
     # 下载文件列表
-    down "$Rlink/info.txt" "$TMP/info.txt"
+    [[ ! -f $TMP/info.txt ]]&&down "$Rlink/info.txt" "$TMP/info.txt"
     if [ ! -s "$TMP/info.txt" ]; then
         log "[error]" "wget \"$Rlink/info.txt\" -O $TMP/info.txt"
         return 1
@@ -452,17 +461,23 @@ node_ins(){
             log "[info]" "local file $file_path version equal git file version,skip"
             continue
         fi
-        down "$Rlink/$git_file_name" "$TMP/$git_file_name" 
+        tmp_md5=$([ -f "$file_path" ] &&md5sum "$TMP/$git_file_name"| awk '{print $1}')
+        if [[ ! -f $TMP/$git_file_name || "$tmp_md5" != "$git_md5_val" ]] ;then
+            down "$Rlink/$git_file_name" "$TMP/$git_file_name"
+        else
+            log "[info]" "local file $TMP/$git_file_name md5sum equal remote md5sum "
+        fi 
         download_md5=$(md5sum $TMP/"$git_file_name" | awk '{print $1}')
         if [ "$download_md5"x != "$git_md5_val"x ];then
             log "[error]" " download file $TMP/$git_file_name md5 $download_md5 different from git md5 $git_md5_val"
             continue
-        else
-            log "[info]" " $TMP/$git_file_name download success."
-            cp -f $TMP/"$git_file_name" "$file_path" > /dev/null
-            chmod "$mod" "$file_path" > /dev/null            
         fi
+        log "[info]" " $TMP/$git_file_name download success."
+        cp -fv $TMP/"$git_file_name" "$file_path" 2> /dev/null
+        rm -v "$TMP/$git_file_name" 2>/dev/null
+        chmod "$mod" "$file_path" > /dev/null            
     done
+    rm -v "$TMP/info.txt"
     _set_node_systemd
     systemctl daemon-reload
     systemctl enable bxc-node
@@ -677,14 +692,14 @@ only_ins_network_base(){
 }
 only_net_check_network(){
     echoinfo "Testing network... \n"
-    network_result=$(docker run --rm -it --net=bxc-macvlan "qinghon/bxc-net:$VDIS" \
+    network_result=$(docker run --rm -it --net=bxc1 "qinghon/bxc-net:$VDIS" \
     /bin/sh -c "curl -m 3 -fs baidu.com -o /dev/null >/dev/null 2>&1";echo $?)
     if [[ $network_result -ne 0 ]]; then
         echoerr "This bridge network can not connect network,curl return $network_result\n"
         read -r -e -p "Delete this network?:" -i "Y" -t 5 choose
         choose=${choose:-"Y"}
         case $choose in
-            Y|y ) docker network rm bxc-macvlan &&echoerr "\nDelete success\n";;
+            Y|y ) docker network rm bxc1 &&echoerr "\nDelete success\n";;
             *   ) echoerr "\nCancel!\n";;
         esac
         return 1
@@ -713,7 +728,7 @@ only_net_set_promisc(){
 }
 only_net_set_bridge(){
     # 设置macvlan桥接网络
-    bxc_network_bridge_id=$(docker network ls -f name=bxc --format "{{.ID}}:{{.Name}}"|grep bxc-macvlan|awk -F: '{print $1}')
+    bxc_network_bridge_id=$(docker network ls -f name=bxc --format "{{.ID}}:{{.Name}}"|grep -E 'bxc-macvlan|bxc1'|awk -F: '{print $1}')
     if [[ -n "${bxc_network_bridge_id}" ]]; then
         return 0
     fi
@@ -737,11 +752,11 @@ only_net_set_bridge(){
     echo "docker network create -d macvlan --subnet=\"${LINK_SUBNET}\" \
     --gateway=\"${LINK_GW}\" --aux-address=\"exclude_host=${LINK_HOSTIP}\" \
     --ip-range=\"${SET_RANGE}\" \
-    -o parent=\"${LINK}\" -o macvlan_mode=\"bridge\" bxc-macvlan"
+    -o parent=\"${LINK}\" -o macvlan_mode=\"bridge\" bxc1"
     docker network create -d macvlan --subnet="${LINK_SUBNET}" \
     --gateway="${LINK_GW}" --aux-address="exclude_host=${LINK_HOSTIP}" \
     --ip-range="${SET_RANGE}" \
-    -o parent="${LINK}" -o macvlan_mode="bridge" bxc-macvlan
+    -o parent="${LINK}" -o macvlan_mode="bridge" bxc1
     # 检验网卡通不通
     if ! only_net_check_network ; then
         return 3
@@ -765,9 +780,11 @@ generate_mac_addr(){
     fi
 }
 run_command(){
+    #log '[info]' "$1"
     $1
     return $?
 }
+
 only_ins_network_docker_run(){
     bcode="$1"
     email="$2"
@@ -781,11 +798,6 @@ only_ins_network_docker_run(){
         generate_mac_addr
     fi
     mac_head_tmp=$(echo "$mac_addr"|awk -F: '{print $1,$2}'|sed 's/ /:/g')
-    command="docker run -d --cap-add=NET_ADMIN --net=bxc-macvlan $set_ipaddress --device /dev/net/tun --restart=always \
-        --sysctl net.ipv6.conf.all.disable_ipv6=0 --mac-address=$mac_addr \
-        -e bcode=${bcode} -e email=${email} --name=bxc-${bcode} \
-        -v bxc_data_${bcode}:/opt/bcloud \
-        ${image_name}"
     # -H 选项 设置静态IP
     if [[ $_SET_IP_ADDRESS -eq 1 ]]; then
         local set_ipaddress
@@ -795,6 +807,18 @@ only_ins_network_docker_run(){
     else
         set_ipaddress=''
     fi
+    # 选择新旧网卡名
+    local network_name
+    if docker network ls -f name=bxc --format "{{.Name}}"|grep -q 'bxc1'; then
+        network_name="--net=bxc1"
+    else
+        network_name="--net=bxc-macvlan"
+    fi
+    command="docker run -d --cap-add=NET_ADMIN $network_name $set_ipaddress --mac-address=$mac_addr \
+        --sysctl net.ipv6.conf.all.disable_ipv6=0 --device /dev/net/tun --restart=always  \
+        -e bcode=${bcode} -e email=${email} --name=bxc-${bcode} \
+        -v bxc_data_${bcode}:/opt/bcloud \
+        ${image_name}"
     # 运行命令
     con_id=$(run_command "$command")
     if [[ -z $con_id ]]; then
@@ -1062,10 +1086,24 @@ set_interfaces_name(){
     esac
     
 }
+_show_info(){
+    Status="$1"
+    num=$2
+    con_ID="$3"
+    have_tun0=$4
+    ip_addr="$5"
+    mac_addr="$6"
+    if [[ "$Status" != "running" || $have_tun0 -ne 0 ]]; then
+        echoerr "${num}  ${Status}\ttun0 not create\t$con_ID\t\t${mac_addr}\t\n"
+    else
+        echoinfo "${num}  ${Status}\t\ttun0 run\t${ip_addr}\t${mac_addr}\n"
+    fi
+}
 only_net_show(){
     # 显示单网络任务的所有容器
+    ins_jq
     IDs=$(docker ps -a --filter="ancestor=qinghon/bxc-net:$VDIS" --format "{{.ID}}")
-    echoerr  "num Status\t\ttun0 Status\t\tcontainer ID\n"
+    echoerr  "num Status\ttun0 Status\tcontainer ID\t\tMAC\n"
     echoinfo "num Status\t\ttun0 Status\tIP\t\tMAC address\n"
     echo-
     local LFS_tmp=$LFS
@@ -1075,17 +1113,30 @@ only_net_show(){
     run_num=0
     fail_num=0
     for i in $IDs; do
-        Status=$(docker container inspect "$i" --format "{{.State.Status}}")
-        have_tun0=$(docker exec -i "$i" /bin/sh -c "ip addr show dev >/dev/null 2>&1" 2>/dev/null;echo $?)
-        ipaddress=$(docker container inspect "$i" --format "{{.NetworkSettings.Networks.bxc-macvlan.IPAddress}}"  2>/dev/null)
-        mac_addr=$(docker  container inspect "$i" --format "{{.NetworkSettings.Networks.bxc-macvlan.MacAddress}}" 2>/dev/null)
-        if [[ "$Status" == "running" && "${have_tun0}" -eq 0 ]]; then
-            run_num=$(($run_num+1))
-            echoinfo "${run_num}  ${Status}\t\ttun0 run\t${ipaddress}\t${mac_addr}\n"
-        else
+        con_info=$(docker container inspect "$i")
+        Status=$(echo "$con_info"|jq -r '.[]|.State.Status')
+        if [[ "$Status" != "running" ]]; then
             fail_num=$(($fail_num+1))
-            echoerr  "${fail_num}  ${Status}\t\ttun0 not create${ipaddress}\t${mac_addr}\t$i\n"
+            _show_info "$Status" "$fail_num" "$i" "1" "" ""
+            continue
         fi
+        have_tun0=$(docker exec -it "$i" /bin/sh -c 'ip addr show dev tun0 >/dev/null 2>&1' 2>/dev/null;echo $?)
+        network_name=$(echo "$con_info"|jq -r '.[]|.NetworkSettings.Networks|to_entries|.[]|.key')
+        if [[ "$network_name" == "bxc1" ]]; then
+            ip_addr=$(echo "$con_info"|jq -r '.[]|.NetworkSettings.Networks.bxc1.IPAddress')
+            mac_addr=$(echo "$con_info"|jq -r '.[]|.NetworkSettings.Networks.bxc1.MacAddress')
+        else
+            ip_addr=$(echo "$con_info"|jq -r '.[]|.NetworkSettings.Networks."bxc-macvlan".IPAddress')
+            mac_addr=$(echo "$con_info"|jq -r '.[]|.NetworkSettings.Networks."bxc-macvlan".MacAddress')
+        fi 
+
+        if [[ $have_tun0 -ne 0 ]] ; then
+            fail_num=$(($fail_num+1))
+            _show_info "$Status" "$fail_num" "$i" "$have_tun0" "$ip_addr" "$mac_addr"
+            continue
+        fi
+        run_num=$(($run_num+1))
+        _show_info "$Status" "$run_num" "$i" "$have_tun0" "$ip_addr" "$mac_addr"
     done
     echo-
     echoinfo "${run_num} running\t\t"
@@ -1197,6 +1248,7 @@ en_us_help=(
     "     └── -H        Set ip for container"
     "     └── -e        export only network job certificate"
     "     └── -i        import only network job certificate"
+    "    -A             Install all task component"
     "    -D             Don't set disk for node program"
     "    -I Interface   set interface name to you want"
     "    -S             show Info level output"
@@ -1222,6 +1274,7 @@ zh_cn_help=(
     "     └── -H        网络容器指定IP"
     "     └── -e        导出单网络任务证书"
     "     └── -i        导入单网络任务证书"
+    "    -A             安装所有计算任务组件"
     "    -D             不初始化外挂硬盘"
     "    -I Interface   指定安装时使用的网卡"
     "    -S             显示Info等级日志"
@@ -1247,12 +1300,20 @@ displayhelp(){
     done
     exit 0
 }
+install_all(){
+    _INIT=1
+    _DOCKER_INS=1
+    _NODE_INS=1
+    _TELEPORT=1
+    _K8S_INS=1
+    _NET_CONF=1
+}
 
 DISPLAYINFO="0"
 _LANG="${LANG}"
-
 _SYSARCH=1
 _INIT=0
+_NET_CONF=0
 _DOCKER_INS=0
 _NODE_INS=0
 _REMOVE=0
@@ -1266,16 +1327,13 @@ _SET_ETHX=0
 _DON_SET_DISK=0
 _SET_IP_ADDRESS=0
 _SHOW_HELP=0
+#_TEST=0
 
 if [[ $# == 0 ]]; then
-    _INIT=1
-    _DOCKER_INS=1
-    _NODE_INS=1
-    _TELEPORT=1
-    _K8S_INS=1
+    install_all
 fi
 
-while  getopts "bdiknrstceghI:DSHL:" opt ; do
+while  getopts "bdiknrstceghAI:DSHL:" opt ; do
     case $opt in
         i ) _INIT=1         ;;
         b ) _BOUND=1        ;;
@@ -1289,6 +1347,7 @@ while  getopts "bdiknrstceghI:DSHL:" opt ; do
         t ) _SHOW_STATUS=1  ;;
         g ) _ONLY_NET=1     ;;
         h ) _SHOW_HELP=1    ;;
+        A ) install_all     ;;
         D ) _DON_SET_DISK=1 ;;
         I ) _select_interface "${OPTARG}" ;;
         S ) DISPLAYINFO="1" ;;
@@ -1309,6 +1368,7 @@ done
 [[ $_CHANGE_KN -eq 1 ]]     &&ins_kernel
 [[ $_ONLY_NET -eq 1 ]]      &&only_ins_network_choose_plan
 [[ $_K8S_INS -eq 1 ]]       &&ins_k8s
+[[ $_NET_CONF -eq 1 ]]      &&ins_conf
 [[ $_BOUND -eq 1 ]]         &&bound
 [[ $_SET_ETHX -eq 1 ]]      &&set_interfaces_name
 [[ $_SHOW_STATUS -eq 1 ]]   &&mg
