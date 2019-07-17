@@ -201,9 +201,9 @@ check_doc(){
 }
 check_k8s(){
     # 检查k8s安装状态和版本
-    reta=$(which kubeadm>/dev/null;echo $?)
-    retl=$(which kubelet>/dev/null;echo $?)
-    retc=$(which kubectl>/dev/null;echo $?)
+    reta=$(which kubeadm>/dev/null 2>&1;echo $?)
+    retl=$(which kubelet>/dev/null 2>&1;echo $?)
+    retc=$(which kubectl>/dev/null 2>&1;echo $?)
     if [ "${reta}" -ne 0 ] || [ "${retl}" -ne 0 ] || [ "${retc}" -ne 0 ] ; then
         log "[info]" "k8s not found"
         return 1
@@ -349,6 +349,7 @@ gpgkey=https://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg https://mirrors
 EOF
     setenforce 0
     yum install  -y kubelet-1.12.3 kubeadm-1.12.3 kubectl-1.12.3 kubernetes-cni-0.6.0
+    yum --exclude kubelet kubeadm kubectl kubernetes-cni
     systemctl enable kubelet && systemctl start kubelet
     
 }
@@ -372,6 +373,7 @@ ins_k8s(){
     swapoff -a
     sed -i 's/^\/swapfile/#\/swapfile/g' /etc/fstab
     if ! check_k8s ; then
+        init
         if [[ "$PG" == "apt" ]]; then
             _k8s_ins_apt
         elif [[ "$PG" == "yum" ]]; then
@@ -426,7 +428,7 @@ Description=bxc node app
 After=network.target
 
 [Service]
-ExecStart=/opt/bcloud/nodeapi/node --alsologtostderr ${INSERT_STR} ${DON_SET_DISK}
+ExecStart=/opt/bcloud/nodeapi/node --alsologtostderr ${DON_SET_DISK} ${INSERT_STR} 
 Restart=always
 RestartSec=10
 
@@ -644,6 +646,12 @@ teleport_remove(){
     systemctl stop teleport
     rm -f /lib/systemd/system/teleport.service
     rm -f /etc/systemd/system/teleport.service
+}
+iostat_ins(){
+    case $PG in
+        apt ) apt update&&apt install sysstat -y ;;
+        yum ) yum install sysstat -y ;;
+    esac
 }
 read_bcode_input(){
     # 交互输入bcode
@@ -1165,7 +1173,7 @@ mg(){
     
     tun0exits=$(ip link show tun0 >/dev/null 2>&1 ;echo $?)
     [[ ${network_file_have} -eq 0 ]] &&tun0exits=$(ip link show tun0 >/dev/null 2>&1 ;echo $?)
-    [[ ${network_docker} -eq 0  && -n "${network_con_id}" ]] &&tun0exits=$(docker exec -i "${network_con_id}" /bin/sh -c "ip link show dev tun0>/dev/null;echo $?")
+    [[ ${network_docker} -eq 0  && -n "${network_con_id}" ]] &&tun0exits=$(docker exec -i "${network_con_id}" /bin/sh -c "ip link show dev tun0>/dev/null 2>&1;echo $?")
     [[ $network_file_have -ne 0 && -z "${network_con_id}" ]] &&tun0exits=1
 
     goproxy_progress=$(goproxy_check >/dev/null 2>&1 ;echo $?)
@@ -1307,6 +1315,7 @@ install_all(){
     _TELEPORT=1
     _K8S_INS=1
     _NET_CONF=1
+    _SYSSTAT=1
 }
 
 DISPLAYINFO="0"
@@ -1318,6 +1327,7 @@ _DOCKER_INS=0
 _NODE_INS=0
 _REMOVE=0
 _TELEPORT=0
+_SYSSTAT=0
 _CHANGE_KN=0
 _ONLY_NET=0
 _K8S_INS=0
@@ -1365,6 +1375,7 @@ done
 [[ $_DOCKER_INS -eq 1 ]]    &&ins_docker
 [[ $_NODE_INS -eq 1 ]]      &&node_ins
 [[ $_TELEPORT -eq 1 ]]      &&teleport_ins
+[[ $_SYSSTAT -eq 1 ]]       &&iostat_ins
 [[ $_CHANGE_KN -eq 1 ]]     &&ins_kernel
 [[ $_ONLY_NET -eq 1 ]]      &&only_ins_network_choose_plan
 [[ $_K8S_INS -eq 1 ]]       &&ins_k8s
