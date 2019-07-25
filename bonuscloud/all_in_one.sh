@@ -104,7 +104,7 @@ sysArch(){
     return 0
 }
 sys_codename(){
-    if  which lsb_release >/dev/null ; then
+    if  which lsb_release >/dev/null  2>&1; then
         OS_CODENAME=$(lsb_release -cs)
     fi
 }
@@ -113,7 +113,7 @@ run_as_root(){
     if [[ $(id -u) -eq 0 ]]; then
         return 0
     fi
-    if which sudo >/dev/null ; then
+    if which sudo >/dev/null 2>&1; then
         echoerr "Please run as sudo:\nsudo bash $0 $1\n"
         exit 1
     else
@@ -124,21 +124,21 @@ run_as_root(){
 env_check(){
     # 检查环境
     # Detection package manager
-    if which apt >/dev/null ; then
+    if which apt >/dev/null 2>&1 ; then
         echoinfo "Find apt\n"
         PG="apt"
-    elif which yum >/dev/null ; then
+    elif which yum >/dev/null 2>&1 ; then
         echoinfo "Find yum\n"
         PG="yum"
-    elif which pacman>/dev/null ; then
+    elif which pacman>/dev/null 2>&1 ; then
         log "[info]" "Find pacman"
         PG="pacman"
     else
         log "[error]" "\"apt\" or \"yum\" ,not found ,exit "
         exit 1
     fi
-    ret_c=$(which curl >/dev/null;echo $?)
-    ret_w=$(which wget >/dev/null;echo $?)
+    ret_c=$(which curl >/dev/null 2>&1;echo $?)
+    ret_w=$(which wget >/dev/null 2>&1;echo $?)
     case ${PG} in
         apt ) $PG install -y curl wget apt-transport-https pciutils bc;;
         yum ) $PG install -y curl wget ;;
@@ -313,7 +313,7 @@ jq_yum_ins(){
 }
 ins_jq(){
     # 安装jq json文件分析工具
-    if which jq>/dev/null; then
+    if which jq>/dev/null 2>&1; then
         return
     fi
     env_check
@@ -322,6 +322,9 @@ ins_jq(){
         yum     ) jq_yum_ins ;;
         pacman  ) $PG -S jq ;;
     esac
+    if ! which jq>/dev/null 2>&1; then
+        echoerr "jq install fail,please check you package sources and try \`$PG install jq -y\`\n"
+    fi
 }
 init(){
     # 初始化目录/文件
@@ -371,7 +374,10 @@ pull_docker_image(){
 }
 ins_k8s(){
     swapoff -a
-    sed -i 's/^\/swapfile/#\/swapfile/g' /etc/fstab
+    sed -i 's/\([a-z/\\\.]\+swap\.\+\)/#\1/g' /etc/fstab
+    if ! grep -q '^swapoff' /etc/rc.local  ; then
+        sed -i "/exit/i\swapoff -a #bxc script" /etc/rc.local
+    fi
     if ! check_k8s ; then
         init
         if [[ "$PG" == "apt" ]]; then
@@ -552,7 +558,7 @@ bxc-network_run(){
 }
 goproxy_ins(){
     # 安装goproxy本地代理程序
-    if which proxy>/dev/null ; then
+    if which proxy>/dev/null 2>&1; then
         return 0
     fi
     LAST_VERSION=$(curl --silent "https://api.github.com/repos/snail007/goproxy/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
@@ -756,7 +762,7 @@ only_net_set_bridge(){
     LINK_SUBNET=$(ip addr show "${LINK}"|grep 'inet '|awk '{print $2}')
     LINK_HOSTIP=$(echo "${LINK_SUBNET}"|awk -F/ '{print $1}')
     only_net_set_promisc "$LINK"
-    echoinfo "Set ip range(设置IP范围):";read -r -e -i "${LINK_SUBNET}" SET_RANGE
+    echoinfo "Set ip range(设置IP范围):\n";read -r -e -i "${LINK_SUBNET}" SET_RANGE
     echo "docker network create -d macvlan --subnet=\"${LINK_SUBNET}\" \
     --gateway=\"${LINK_GW}\" --aux-address=\"exclude_host=${LINK_HOSTIP}\" \
     --ip-range=\"${SET_RANGE}\" \
@@ -765,6 +771,9 @@ only_net_set_bridge(){
     --gateway="${LINK_GW}" --aux-address="exclude_host=${LINK_HOSTIP}" \
     --ip-range="${SET_RANGE}" \
     -o parent="${LINK}" -o macvlan_mode="bridge" bxc1
+    if [[ $_SET_PPPOE -eq 1 ]]; then
+        return 0
+    fi
     # 检验网卡通不通
     if ! only_net_check_network ; then
         return 3
@@ -840,14 +849,14 @@ only_ins_network_docker_run(){
         echoerr "bound fail\n${fail_log}\n"
         docker stop "${con_id}"
         docker rm "${con_id}"
-        return 
+        return 3
     fi
     # 检测是否为mac问题导致不能running,并清除
     create_status=$(docker container inspect "${con_id}" --format "{{.State.Status}}")
     if [[ "$create_status" == "created" ]]; then
         echowarn "Delete can not run container\n"
         docker container rm "${con_id}"
-        return 
+        return 4
     else
         # 运行成功时,修改自身脚本定义的mac头为可用头
         if [[ -z $mac_head ]]; then
@@ -873,8 +882,12 @@ _only_net_get_image(){
         arm64  ) image_name="qinghon/bxc-net:arm64" ;;
         *      ) echoerr "No support $VDIS\n";return 4  ;;
     esac
-    echoinfo "Downloading $image_name ...\n"
-    docker pull "${image_name}"
+    if [[ $_DON_DOWN_IMAGE -eq 0 ]]; then
+        echoinfo "Downloading $image_name ...\n"
+        docker pull "${image_name}"
+    else
+        echowarn "Skip $image_name download\n"
+    fi
     if ! docker images --format "{{.Repository}}"|grep -q 'qinghon/bxc-net' ; then
         echoerr "pull failed,exit!,you can try: docker pull ${image_name}\n"
         return 1
@@ -1254,6 +1267,7 @@ en_us_help=(
     "    -e             Set interfaces name to ethx,only x86_64 and using grub"
     "    -g             Install network job only"
     "     └── -H        Set ip for container"
+    "     └── -M        skip bxc-net docker image download"
     "     └── -e        export only network job certificate"
     "     └── -i        import only network job certificate"
     "    -A             Install all task component"
@@ -1280,6 +1294,7 @@ zh_cn_help=(
     "    -e             设置网卡名称为ethx格式,仅支持使用grub的x86设备"
     "    -g             仅安装网络任务"
     "     └── -H        网络容器指定IP"
+    "     └── -M        跳过bxc-net镜像下载"
     "     └── -e        导出单网络任务证书"
     "     └── -i        导入单网络任务证书"
     "    -A             安装所有计算任务组件"
@@ -1337,13 +1352,16 @@ _SET_ETHX=0
 _DON_SET_DISK=0
 _SET_IP_ADDRESS=0
 _SHOW_HELP=0
+_DON_DOWN_IMAGE=0
+_SET_PPPOE=0
+_NEED_PUBIP=0
 #_TEST=0
 
 if [[ $# == 0 ]]; then
     install_all
 fi
 
-while  getopts "bdiknrstceghAI:DSHL:" opt ; do
+while  getopts "bdiknrstceghAI:DSHL:MPE" opt ; do
     case $opt in
         i ) _INIT=1         ;;
         b ) _BOUND=1        ;;
@@ -1360,9 +1378,12 @@ while  getopts "bdiknrstceghAI:DSHL:" opt ; do
         A ) install_all     ;;
         D ) _DON_SET_DISK=1 ;;
         I ) _select_interface "${OPTARG}" ;;
+        M ) _DON_DOWN_IMAGE=1 ;;
         S ) DISPLAYINFO="1" ;;
         H ) _SET_IP_ADDRESS=1   ;;
         L ) _LANG="${OPTARG}"   ;;
+        P ) _SET_PPPOE=1    ;;
+        E ) _NEED_PUBIP=1   ;;
         ? ) echoerr "Unknow arg. exiting" ;displayhelp; exit 1 ;;
     esac
 done
