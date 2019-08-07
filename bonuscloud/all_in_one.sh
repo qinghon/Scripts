@@ -140,7 +140,7 @@ env_check(){
     ret_c=$(which curl >/dev/null 2>&1;echo $?)
     ret_w=$(which wget >/dev/null 2>&1;echo $?)
     case ${PG} in
-        apt ) $PG install -y curl wget apt-transport-https pciutils bc;;
+        apt ) $PG install -y curl wget apt-transport-https pciutils;;
         yum ) $PG install -y curl wget ;;
     esac
     # Check if the system supports
@@ -260,7 +260,12 @@ ins_docker(){
     if [[ "$PG" == "apt" ]]; then
         # Install docker with APT
         # apt 安装docker
+        apt install gnupg2 -y
         curl -fsSL "https://download.docker.com/linux/$OS/gpg" | apt-key add -
+        if [[ $? -ne 0 ]]; then
+            echoerr "add source public key failed ,check you network\n添加docker源公钥失败,检查您的网络配置,必要时请将download.docker.com加入代理\n"
+            return 2
+        fi
         echo "deb https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/$OS  $OS_CODENAME stable"  >/etc/apt/sources.list.d/docker.list
         apt update
         # 遍历版本号,安装不能超过限制的版本
@@ -367,10 +372,16 @@ _k8s_ins_apt(){
 }
 pull_docker_image(){
     ins_docker
-    docker pull registry.cn-beijing.aliyuncs.com/bxc_k8s_gcr_io/pause:3.1
-    docker pull registry.cn-beijing.aliyuncs.com/bxc_k8s_gcr_io/kube-proxy:v1.12.3
-    docker tag registry.cn-beijing.aliyuncs.com/bxc_k8s_gcr_io/pause:3.1 k8s.gcr.io/pause:3.1
-    docker tag registry.cn-beijing.aliyuncs.com/bxc_k8s_gcr_io/kube-proxy:v1.12.3 k8s.gcr.io/kube-proxy:v1.12.3
+    case $VDIS in
+        arm   ) pause_TAG="arm32-3.1" ; proxy_name="kube-proxy-arm"     ;;
+        arm64 ) pause_TAG="arm-3.1"   ; proxy_name="kube-proxy-arm64"   ;;
+        amd64 ) pause_TAG="3.1"       ; proxy_name="kube-proxy"         ;;
+    esac
+    docker pull registry.cn-beijing.aliyuncs.com/bxc_k8s_gcr_io/pause:$pause_TAG
+    docker pull registry.cn-beijing.aliyuncs.com/bxc_k8s_gcr_io/$proxy_name:v1.12.3
+
+    docker tag registry.cn-beijing.aliyuncs.com/bxc_k8s_gcr_io/pause:$pause_TAG k8s.gcr.io/pause:3.1
+    docker tag registry.cn-beijing.aliyuncs.com/bxc_k8s_gcr_io/$proxy_name:v1.12.3 k8s.gcr.io/kube-proxy:v1.12.3
 }
 ins_k8s(){
     swapoff -a
@@ -443,6 +454,7 @@ WantedBy=multi-user.target
 EOF
 }
 node_ins(){
+    mkdir -p $BASE_DIR/{scripts,nodeapi,compute}
     # 安装node组件
     # 区分kernel版本下载文件
     kel_v=$(uname -r|grep -E -o '([0-9]+\.){2}[0-9]')
@@ -482,8 +494,10 @@ node_ins(){
         fi
         log "[info]" " $TMP/$git_file_name download success."
         cp -fv $TMP/"$git_file_name" "$file_path" 2> /dev/null
-        rm -v "$TMP/$git_file_name" 2>/dev/null
         chmod "$mod" "$file_path" > /dev/null            
+        if [[ -x "$file_path" ]]; then
+            rm -v "$TMP/$git_file_name"
+        fi
     done
     rm -v "$TMP/info.txt"
     _set_node_systemd
@@ -511,13 +525,13 @@ bxc-network_ins(){
     ret_4=$(apt list libcurl4 2>/dev/null|grep -q installed;echo $?)
     if [[ ${ret_4} -eq 0 ]]; then
         log "[info]" "Install libcurl4 library bxc-network"
-        down "img-modules/bxc-network_x86_64" "${BASE_DIR}/bxc-network"
+        down "img-modules/bxc-network_$ARCH" "${BASE_DIR}/bxc-network"
         chmod +x ${BASE_DIR}/bxc-network
     fi
     ret_3=$(apt list libcurl3 2>/dev/null|grep -q installed;echo $?)
     if [[ ${ret_3} -eq 0 ]]; then
         log "[info]" "Install libcurl3 library bxc-network"
-        down "img-modules/5.0.0-aml-N1-BonusCloud/bxc-network_x86_64" "${BASE_DIR}/bxc-network"
+        down "img-modules/5.0.0-aml-N1-BonusCloud/bxc-network_$ARCH" "${BASE_DIR}/bxc-network"
         chmod +x ${BASE_DIR}/bxc-network
     fi
     apt install -y liblzo2-2 libjson-c3 
@@ -739,6 +753,20 @@ only_net_set_promisc(){
     if ! grep -q "${LINK} promisc" /etc/rc.local ; then
         sed -i "/exit/i\ip link set ${LINK} promisc on" /etc/rc.local
     fi
+    #add pppoe support
+    if [[ $_SET_PPPOE -eq 1 ]]; then
+        if grep -q 'ppp' /etc/modules-load.d/bxc-net.conf 2>/dev/null; then
+            return 0
+        fi
+        echo pppoe >> /etc/modules
+        printf "tun\nppp-compress-18\nppp_mppe\nppp_deflate\nppp_async\npppoatm\nppp_generic\n">/etc/modules-load.d/bxc-net.conf
+        echoinfo "We need reboot,after reboot you should run this command again\n"
+        echoinfo "需要重启,重启之后你需要再次运行此命令\n"
+        read -r -p "reboot now?(现在重启吗)[Y|n]" choose
+        case $choose in
+            y|Y ) reboot ;;
+        esac
+    fi
 }
 only_net_set_bridge(){
     # 设置macvlan桥接网络
@@ -820,26 +848,39 @@ only_ins_network_docker_run(){
         local set_ipaddress
         local ipaddress
         echoinfo "Set ip address:\n" ;read -r ipaddress
-        set_ipaddress="--ip=\"${ipaddress}\""
+        set_ipaddress="--ip=${ipaddress}"
     else
         set_ipaddress=''
     fi
-    # 选择新旧网卡名
+    # 设置宽带拨号
+    if [[ $_SET_PPPOE -eq 1 ]] ;then
+        read -r -p "pppoe username:" -e -i "$pppoe_user"  pppoe_user
+        read -r -p "pppoe password:" -e -i "$pppoe_passwd" pppoe_passwd
+        if [[ -n $pppoe_user && -n $pppoe_passwd ]]; then
+            ppp_account="-e PPPOE_NAME=$pppoe_user -e PPPOE_PASSWD=$pppoe_passwd "
+        else
+            echoerr "set error\n"
+            return 1
+        fi
+    fi
+    if [[ $_NEED_PUBIP -eq 1 ]]; then
+        local need_pubip=" -e NEED_PUBIP=1"
+    fi
     local network_name
     if docker network ls -f name=bxc --format "{{.Name}}"|grep -q 'bxc1'; then
         network_name="--net=bxc1"
     else
         network_name="--net=bxc-macvlan"
     fi
-    command="docker run -d --cap-add=NET_ADMIN $network_name $set_ipaddress --mac-address=$mac_addr \
-        --sysctl net.ipv6.conf.all.disable_ipv6=0 --device /dev/net/tun --restart=always  \
-        -e bcode=${bcode} -e email=${email} --name=bxc-${bcode} \
+    command="docker run -d --restart=always  $network_name $set_ipaddress --mac-address=$mac_addr \
+        --sysctl net.ipv6.conf.all.disable_ipv6=0 --device /dev/net/tun --device /dev/ppp --cap-add=NET_ADMIN \
+        -e bcode=${bcode} -e email=${email} ${ppp_account} ${need_pubip} --name=bxc-${bcode} \
         -v bxc_data_${bcode}:/opt/bcloud \
         ${image_name}"
     # 运行命令
     con_id=$(run_command "$command")
     if [[ -z $con_id ]]; then
-        return 1
+        return 2
     fi
     echo "${con_id}"
     sleep 3
@@ -898,6 +939,8 @@ only_ins_network_docker_openwrt(){
     ins_jq
     local image_name=""
     local mac_head=""
+    local pppoe_user
+    local pppoe_passwd
     if ! _only_net_get_image ; then
         return 1
     fi
@@ -988,6 +1031,10 @@ only_net_cert_import_run(){
             continue
         fi
         bcode_=$(echo "$info"|jq -r '.bcode')
+        if docker inspect "bxc-$bcode_">/dev/null 2>&1; then
+            echoinfo "container $bcode_ already exists\n"
+            continue 
+        fi
         email_=$(echo "$info"|jq -r '.email')
         mac_addr_=$(echo "$info"|jq -r '.mac_address')
         only_ins_network_docker_run "$bcode_" "$email_" "$mac_addr_"
@@ -1006,6 +1053,10 @@ only_net_cert_import(){
 
         filename=$(basename "$i")
         bcode=$(echo "$i"|grep -E -o "[0-9a-f]{4}-[0-9a-f]{8}-([0-9a-f]{4}-){2}[0-9a-f]{4}-[0-9a-f]{12}")
+        if docker volume inspect "bxc_data_$bcode" >/dev/null 2>&1 ; then
+            echoinfo "certificate $bcode already exists \n"
+            continue
+        fi
         [[ -z $bcode ]]&& echoerr "can not get bcode for $i" && continue
         echoinfo "importing\t$bcode ...\n"
         docker create -v "bxc_data_$bcode":/opt/bcloud --name "bxc_date_tmp_$bcode" qinghon/bxc-net:$VDIS true 1>/dev/null 
@@ -1203,6 +1254,12 @@ mg(){
     #docker check
     doc_che_ret=$(check_doc2 >/dev/null 2>&1 ;echo $?)
     [[ ${doc_che_ret} -ne 1 ]]&& doc_v=$(docker version --format "{{.Server.Version}}")
+
+    #Disk find
+    lvm_have=$(lsblk -l |grep 'BonusVolGroup')
+    [[ -n $lvm_have ]]&& mounted=$(echo "$lvm_have"|awk '{print $7}')
+    [[ -n $mounted ]] && used=$(df -h |grep "$mounted"|awk '{print $}')
+
     #output
     echowarn "\nbxc-network:\n"
     echo -e -n "|install?\t|running?\t|connect?\t|proxy aleady?\n"
