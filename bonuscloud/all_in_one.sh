@@ -121,22 +121,25 @@ run_as_root(){
         exit 2
     fi
 }
-env_check(){
-    # 检查环境
+_check_pg(){
     # Detection package manager
     if which apt >/dev/null 2>&1 ; then
-        echoinfo "Find apt\n"
+        # echoinfo "Find apt\n"
         PG="apt"
     elif which yum >/dev/null 2>&1 ; then
-        echoinfo "Find yum\n"
+        # echoinfo "Find yum\n"
         PG="yum"
     elif which pacman>/dev/null 2>&1 ; then
-        log "[info]" "Find pacman"
+        # log "[info]" "Find pacman"
         PG="pacman"
     else
         log "[error]" "\"apt\" or \"yum\" ,not found ,exit "
         exit 1
     fi
+}
+env_check(){
+    # 检查环境
+    _check_pg
     ret_c=$(which curl >/dev/null 2>&1;echo $?)
     ret_w=$(which wget >/dev/null 2>&1;echo $?)
     case ${PG} in
@@ -203,14 +206,12 @@ check_k8s(){
     # 检查k8s安装状态和版本
     reta=$(which kubeadm>/dev/null 2>&1;echo $?)
     retl=$(which kubelet>/dev/null 2>&1;echo $?)
-    retc=$(which kubectl>/dev/null 2>&1;echo $?)
-    if [ "${reta}" -ne 0 ] || [ "${retl}" -ne 0 ] || [ "${retc}" -ne 0 ] ; then
+    if [ "${reta}" -ne 0 ] || [ "${retl}" -ne 0 ] ; then
         log "[info]" "k8s not found"
         return 1
     else 
         k8s_adm=$(kubeadm version -o short|grep -o '[0-9\.]*')
         k8s_let=$(kubelet --version|grep -o '[0-9\.]*')
-        k8s_ctl=$(kubectl  version --short --client|grep -o '[0-9\.]*')
         if version_ge "${k8s_adm}" "${K8S_LOW}" ; then
             log "[info]" "kubeadm version ok"
         else
@@ -221,12 +222,6 @@ check_k8s(){
             log "[info]"  "kubelet version ok"
         else
             log "[info]"  "kubelet version fail"
-            return 1
-        fi
-        if version_ge "${k8s_ctl}" "${K8S_LOW}" ; then
-            log "[info]"  "kubectl version ok"
-        else
-            log "[info]"  "kubectl version fail"
             return 1
         fi
         return 0
@@ -321,7 +316,7 @@ ins_jq(){
     if which jq>/dev/null 2>&1; then
         return
     fi
-    env_check
+    _check_pg
     case $PG in
         apt     ) $PG install -y jq ;;
         yum     ) jq_yum_ins ;;
@@ -356,8 +351,8 @@ repo_gpgcheck=1
 gpgkey=https://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg https://mirrors.aliyun.com/kubernetes/yum/doc/rpm-package-key.gpg
 EOF
     setenforce 0
-    yum install  -y kubelet-1.12.3 kubeadm-1.12.3 kubectl-1.12.3 kubernetes-cni-0.6.0
-    yum --exclude kubelet kubeadm kubectl kubernetes-cni
+    yum install  -y kubelet-1.12.3 kubeadm-1.12.3 kubernetes-cni-0.6.0
+    yum --exclude kubelet kubeadm kubernetes-cni
     systemctl enable kubelet && systemctl start kubelet
     
 }
@@ -366,9 +361,9 @@ _k8s_ins_apt(){
     echo "deb https://mirrors.aliyun.com/kubernetes/apt/ kubernetes-xenial main"|tee /etc/apt/sources.list.d/kubernetes.list
     log "[info]" "installing k8s"
     apt update
-    apt-mark unhold kubelet kubeadm kubectl kubernetes-cni
-    apt install -y --allow-downgrades kubeadm=1.12.3-00 kubectl=1.12.3-00 kubelet=1.12.3-00 kubernetes-cni=0.6.0-00 
-    apt-mark hold kubelet kubeadm kubectl kubernetes-cni
+    apt-mark unhold kubelet kubeadm kubernetes-cni
+    apt install -y --allow-downgrades kubeadm=1.12.3-00  kubelet=1.12.3-00 kubernetes-cni=0.6.0-00 
+    apt-mark hold kubelet kubeadm kubernetes-cni
 }
 pull_docker_image(){
     ins_docker
@@ -391,11 +386,10 @@ ins_k8s(){
     fi
     if ! check_k8s ; then
         init
-        if [[ "$PG" == "apt" ]]; then
-            _k8s_ins_apt
-        elif [[ "$PG" == "yum" ]]; then
-            _k8s_ins_yum
-        fi
+        case $PG in
+            apt ) _k8s_ins_apt ;;
+            yum ) _k8s_ins_yum ;;
+        esac
         if ! check_k8s ; then
             log "[error]" "k8s install fail!"
             exit 1
@@ -414,13 +408,16 @@ net.ipv4.tcp_congestion_control = bbr
 net.ipv4.ip_forward = 1
 EOF
     modprobe br_netfilter
-    echo "tcp_bbr">>/etc/modules
+    printf "\ntcp_bbr\n">>/etc/modules
     sysctl -p /etc/sysctl.d/k8s.conf 2>/dev/null
     log "[info]" "k8s install over"
 }
 k8s_remove(){
     kubeadm reset -f
-    ${PG} remove -y kubelet kubectl kubeadm --allow-change-held-packages
+    case $PG in
+        yum ) $PG remove -y kubeadm kubelet  ;;
+        apt ) $PG remove -y kubeadm kubelet --allow-change-held-packages ;;
+    esac
     rm -rf /etc/sysctl.d/k8s.conf
 }
 ins_conf(){
@@ -518,7 +515,8 @@ node_remove(){
     # 清除上面安装的node组件
     systemctl stop bxc-node
     systemctl disable bxc-node
-    rm -rf /lib/systemd/system/bxc-node.service 
+    rm -rvf /lib/systemd/system/bxc-node.service
+    rm -rvf /opt/bcloud/nodeapi/node
 }
 bxc-network_ins(){
     # 安装网络插件,用与连接到bxc网络
@@ -661,11 +659,11 @@ teleport_ins(){
     esac
 }
 teleport_remove(){
-    rm -f /opt/bcloud/teleport
+    rm -vf /opt/bcloud/teleport
     systemctl disable teleport
     systemctl stop teleport
-    rm -f /lib/systemd/system/teleport.service
-    rm -f /etc/systemd/system/teleport.service
+    rm -vf /lib/systemd/system/teleport.service 2>&1 
+    rm -vf /etc/systemd/system/teleport.service 2>&1 
 }
 iostat_ins(){
     case $PG in
@@ -1301,9 +1299,8 @@ remove(){
             echoinfo "teleport removed\n"
             echoinfo "see you again!\n"
             ;;
-        * ) return ;;
+        * ) echowarn "Your input is incorrect \n"&& return ;;
     esac
-
 }
 
 en_us_help=(
@@ -1389,6 +1386,7 @@ install_all(){
     _NET_CONF=1
     _SYSSTAT=1
 }
+_check_pg
 
 DISPLAYINFO="0"
 _LANG="${LANG}"
@@ -1418,7 +1416,7 @@ if [[ $# == 0 ]]; then
     install_all
 fi
 
-while  getopts "bdiknrstceghAI:DSHL:MPE" opt ; do
+while  getopts "bdiknrstceghAI:DSHL:MPEZ:" opt ; do
     case $opt in
         i ) _INIT=1         ;;
         b ) _BOUND=1        ;;
@@ -1441,6 +1439,7 @@ while  getopts "bdiknrstceghAI:DSHL:MPE" opt ; do
         L ) _LANG="${OPTARG}"   ;;
         P ) _SET_PPPOE=1    ;;
         E ) _NEED_PUBIP=1   ;;
+        Z ) ${OPTARG} ;;
         ? ) echoerr "Unknow arg. exiting" ;displayhelp; exit 1 ;;
     esac
 done

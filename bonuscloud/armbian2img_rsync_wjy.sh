@@ -1,41 +1,42 @@
 #!/bin/bash -e
 set -e
 
-DEV_EMMC="/dev/mmcblk1"
-IMG_PATH="/mnt/BonusCloud-LiteNode-N1-emmc.img"
+DEV_EMMC="/dev/mmcblk0"
+IMG_PATH="/mnt/wjy/armbian_rsync_wjy.img"
 NOT_HAVE=0
 echo "Create armbian images"
 if [[ ! -f $IMG_PATH ]]; then
     NOT_HAVE=1
-    dd if=/dev/zero of=$IMG_PATH bs=1M seek=2560 count=0
-
-    echo "Start script create MBR and filesystem"
-
+    IMG_PATH_DIR=$(dirname "$IMG_PATH")
+    mkdir -p "$IMG_PATH_DIR"
     
+    dd if=/dev/zero of=$IMG_PATH bs=1M seek=2048 count=0
+
+    echo "Start script create MBR and filesystem" 
     DEV_IMG=$(losetup --find --show -P $IMG_PATH )
     sleep 1
     echo "Start backup u-boot default"
 
-    dd if="${DEV_EMMC}" of=u-boot-default.img bs=1M count=4
+    dd if="${DEV_EMMC}" of=u-boot-default.img bs=1M count=16
 
     echo "Start create MBR and partittion"
 
     parted -s "${DEV_IMG}" mklabel msdos
-    parted -s "${DEV_IMG}" mkpart primary fat32 4096KB 128M
-    parted -s "${DEV_IMG}" mkpart primary ext4 128M 100%
+    parted -s "${DEV_IMG}" mkpart primary ext4 17MB 100%
+    parted -s "${DEV_IMG}" set 1 boot on
 
     echo "Start restore u-boot"
     dd if=u-boot-default.img of="${DEV_IMG}" conv=fsync bs=1 count=442
     dd if=u-boot-default.img of="${DEV_IMG}" conv=fsync bs=512 skip=1 seek=1
     echo "Done"
     
-    PART_BOOT="${DEV_IMG}p1"
-    PART_ROOT="${DEV_IMG}p2"
+    #PART_BOOT="${DEV_IMG}p1"
+    PART_ROOT="${DEV_IMG}p1"
 
-    echo -n "Formatting BOOT partition..."
-    mkfs.vfat -n "BOOT" "$PART_BOOT"
-    echo "done."
-
+    # echo -n "Formatting BOOT partition..."
+    # mkfs.vfat -n "boot" "$PART_BOOT"
+    # echo "done."
+    sleep 2
     echo "Formatting ROOT partition..."
     mke2fs -F -q -t ext4 -L ROOTFS -m 0 "$PART_ROOT"
     e2fsck -n "$PART_ROOT"
@@ -44,8 +45,8 @@ if [[ ! -f $IMG_PATH ]]; then
 else
     NOT_HAVE=0
     DEV_IMG=$(losetup --find --show -P  $IMG_PATH  )
-    PART_BOOT="${DEV_IMG}p1"
-    PART_ROOT="${DEV_IMG}p2"
+    # PART_BOOT="${DEV_IMG}p1"
+    PART_ROOT="${DEV_IMG}p1"
 fi
 
 
@@ -65,15 +66,15 @@ if [ -d $DIR_INSTALL ] ; then
 fi
 mkdir -p $DIR_INSTALL
 
-if grep -q "$PART_BOOT" /proc/mounts ; then
-    echo "Unmounting BOOT partiton."
-    umount -f "$PART_BOOT"
-fi
-mount -o rw "$PART_BOOT" $DIR_INSTALL
+# if grep -q "$PART_BOOT" /proc/mounts ; then
+#     echo "Unmounting BOOT partiton."
+#     umount -f "$PART_BOOT"
+# fi
+# mount -o rw "$PART_BOOT" $DIR_INSTALL
 
-echo -n "Cppying BOOT..."
-cp -r /boot/* $DIR_INSTALL && sync
-echo "done."
+# echo -n "Cppying BOOT..."
+# cp -r /boot/* $DIR_INSTALL && sync
+# echo "done."
 
 #echo -n "Edit init config..."
 #sed -e "s/ROOTFS/ROOT_EMMC/g" \
@@ -83,7 +84,7 @@ echo "done."
 #rm $DIR_INSTALL/s9*
 #rm $DIR_INSTALL/aml*
 
-umount $DIR_INSTALL
+# umount $DIR_INSTALL
 
 if grep -q "$PART_ROOT" /proc/mounts ; then
     echo "Unmounting ROOT partiton."
@@ -109,9 +110,9 @@ cd /
 echo "Copy BIN"
 #tar -cf - bin | (cd $DIR_INSTALL; tar -xpf -)
 copy_fun bin $DIR_INSTALL
-#echo "Copy BOOT"
-#mkdir -p $DIR_INSTALL/boot
-#tar -cf - boot | (cd $DIR_INSTALL; tar -xpf -)
+echo "Copy BOOT"
+mkdir -p $DIR_INSTALL/boot
+tar -cf - boot | (cd $DIR_INSTALL; tar -xpf -)
 echo "Create DEV"
 mkdir -p $DIR_INSTALL/dev
 #tar -cf - dev | (cd $DIR_INSTALL; tar -xpf -)
@@ -154,7 +155,9 @@ echo "Reset root password"
 sed -i '1croot:x:0:0:root:/root:/bin/bash' $DIR_INSTALL/etc/passwd 
 sed -i '1croot:x:0:0:root:/root:/bin/bash' $DIR_INSTALL/etc/passwd-
 sed -i '1croot:$6$qv49SyJb$l3ICC2rvr52Wbmaw2/PqcOXEn5R1bsnz367R9Jo3MiW2cYSL5JrjHw9LgjAQ1qYI8JT70cC/WOBt7z38Xm7Tl0:18161:0:99999:7:::' $DIR_INSTALL/etc/shadow
-sed -i '1croot:$6$qv49SyJb$l3ICC2rvr52Wbmaw2/PqcOXEn5R1bsnz367R9Jo3MiW2cYSL5JrjHw9LgjAQ1qYI8JT70cC/WOBt7z38Xm7Tl0:18161:0:99999:7:::' $DIR_INSTALL/etc/shadow-
+sed -i '1croot:$6$qv49SyJb$l3ICC2rvr52Wbmaw2/PqcOXEn5R1bsnz367R9Jo3MiW2cYSL5JrjHw9LgjAQ1qYI8JT70cC/WOBt7z38Xm7Tl0:18161:0:99999:7::::' $DIR_INSTALL/etc/shadow-
+
+
 #echo "Copy fstab"
 
 #rm $DIR_INSTALL/etc/fstab
